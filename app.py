@@ -16,6 +16,11 @@
 4. API 키 없이 '가상 데이터' 모드로 검색·비교·요금·추천을 모두 시연할 수 있습니다.
    QR은 앱의 공개 HTTPS 주소를 여는 링크입니다. 서버 실행 기능이 아닙니다.
 
+[간편 화면 기본 조건]
+- 방문 날짜/입차 시간/예상 주차 시간/검색 반경 입력란은 없습니다.
+- 2시간 주차, 반경 1km로 자동 비교합니다. 실제 모드는 현재 한국 시간,
+  가상 모드는 당일 12:00~14:00 기준이며 화면에 기준을 표시합니다.
+
 [실제 데이터 / 한계]
 - 카카오맵 REST API 장소 키워드 검색 및 PK6 주차장 카테고리 검색:
   https://developers.kakao.com/docs/en/kakaomap/rest-api
@@ -457,19 +462,11 @@ def main():
                                format_func=lambda i: f"{by_id[i]['name']} | {by_id[i]['address']}", key="destination_choice")
     dest = by_id[selected_id]
     st.caption("선택한 주소: " + dest["address"])
-    st.subheader("② 방문 조건")
-    a, b = st.columns(2)
-    day = a.date_input("방문 예정일 (한국 시간)", value=today, min_value=today, max_value=today+timedelta(days=365))
-    clock = b.time_input("입차 예정 시간", value=time(12,0), step=900)
-    a, b = st.columns(2)
-    duration = a.number_input("예상 주차 시간 (분)", min_value=10, max_value=1440, value=120, step=10)
-    radius = b.select_slider("주변 검색 반경", options=[300,500,800,1000,1500,2000], value=1000, format_func=lambda x:f"{x:,}m")
-    criterion = st.radio("추천 기준", ["요금 우선","거리 우선","요금·거리 균형"], horizontal=True)
-    start = datetime.combine(day, clock)
-    end = start+timedelta(minutes=int(duration))
-    if not demo and start < datetime.now(KST).replace(tzinfo=None):
-        st.warning("입차 예정 시간이 현재보다 이전입니다. 방문 시간을 다시 확인해 주세요.")
-    st.caption(f"이용 구간 {start:%m/%d %H:%M} → {end:%m/%d %H:%M} · 일반 승용차 / 1회 입출차")
+    # 방문 조건 입력 UI 제거: 간단한 기본 조건으로 자동 비교합니다.
+    duration, radius = 120, 1000
+    start = (datetime.combine(today,time(12,0)) if demo else
+             datetime.now(KST).replace(tzinfo=None,second=0,microsecond=0))
+    end = start+timedelta(minutes=duration)
     lots = []
     if demo:
         _, all_lots = demo_data()
@@ -510,7 +507,8 @@ def main():
                 st.rerun()
             show_qr()
             return
-    st.subheader("③ 목적지 전용·제휴 먼저 확인")
+    st.subheader("② 목적지 전용·제휴 먼저 확인")
+    st.caption(f"자동 비교 기준: 2시간 주차 · 주변 반경 1km · {'가상 시연 기준 ' if demo else '한국 시간 '}{start:%m/%d %H:%M}~{end:%m/%d %H:%M}")
     affiliated = [p for p in lots if affiliation(p,dest["id"])]
     if not affiliated and demo:
         st.info("가상 데이터 설정상 이 목적지의 전용·제휴 주차장은 없습니다. 주변 후보를 비교해 보세요.")
@@ -540,7 +538,8 @@ def main():
         if affiliation(r,dest["id"]):
             with st.expander(r["name"] + " · " + affiliation(r,dest["id"]), expanded=True):
                 show_lot(r,dest["id"],demo)
-    st.subheader("④ 추천 주차장 · 상위 3곳")
+    st.subheader("③ 추천 주차장 · 상위 3곳")
+    criterion = st.radio("추천 기준", ["요금 우선","거리 우선","요금·거리 균형"], horizontal=True)
     st.caption("모든 거리는 목적지와의 직선거리입니다. 도보 경로·도보 시간은 제공하지 않습니다. 운영 구간 전체가 확인된 주차장만 추천합니다.")
     explanations = {
         "요금 우선":"예상요금이 낮은 순 → 동률이면 직선거리가 가까운 순. 요금 미확인 제외.",
