@@ -3,11 +3,11 @@
 목적지 옆 주차장 · Streamlit 단일 화면 앱
 
 [GitHub / 배포]
-1. 이 app.py와 requirement.txt 두 파일을 GitHub 저장소에 올립니다.
+1. 이 app.py와 requirements.txt 두 파일을 같은 GitHub 폴더에 올립니다.
 2. Streamlit Community Cloud에서 저장소 연결, main file = app.py로 배포합니다.
-   중요: 플랫폼의 자동 의존성 설치 파일명은 requirements.txt(복수형)입니다.
-   제출물은 요청하신 requirement.txt로 제공하므로, GitHub에 올릴 때만 파일명을
-   requirements.txt로 변경하세요. 로컬은 pip install -r requirement.txt 후
+   파일명은 반드시 requirements.txt(복수형)로 유지하세요.
+   예전 requirement.txt는 제거하고 이 파일로 교체하세요.
+   로컬은 pip install -r requirements.txt 후
    streamlit run app.py 로 실행합니다. Python 3.11 이상 권장.
 3. App settings > Secrets에 아래 TOML을 입력합니다. 키를 GitHub에 커밋하지 마세요.
    KAKAO_REST_API_KEY = "카카오_REST_API_키"
@@ -58,8 +58,8 @@ verified_on은 한국 기준 확인일 YYYY-MM-DD, source_url은 공식 안내 H
   예외 검토까지 했을 때만 true. false 또는 누락은 운영시간 확인 필요 처리.
 - tariff.complete=true는 시간/요일/차종별 예외 없는 단일 요금제임을 확인했다는 뜻.
   일반 승용차, 1회 입출차 기준만 지원. 복잡한 요일별 요금은 complete=false로 둡니다.
-  무료시간 차감 → 기본요금 → 추가요금 올림 → 할인(무료시간/비율/정액)
-  → 일일상한 순서가 실제 규정과 일치할 때만 등록하세요.
+  기본 무료시간 및 선택한 할인 무료시간 차감 → 기본요금 → 추가요금 올림
+  → 선택한 비율/정액 할인 → 일일상한 순서가 실제 규정과 일치할 때만 등록하세요.
   daily_cap=null은 상한이 없음을 확인했다는 의미. 모르면 complete=false.
   discount=null은 할인 없음 확인; 할인 조건을 모르면 complete=false.
   자정 넘김은 재정산 기준이 달라 계산하지 않습니다. 할인은 사용자가 해당
@@ -75,12 +75,12 @@ from __future__ import annotations
 import io
 import json
 import math
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from datetime import date, datetime, time, timedelta
 from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import qrcode
 import requests
 import streamlit as st
 
@@ -115,40 +115,73 @@ def distance_m(a, b):
 def minutes_at(value):
     if value == "24:00":
         return 1440
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        raise ValueError("HH:MM 형식 필요")
     t = datetime.strptime(value, "%H:%M")
     return t.hour*60 + t.minute
 
 
-def operation_status(hours, start, end):
-    """区間の和集合で全滞在時間をカバーするか判定。境界の出庫は可。"""
-    if not isinstance(hours, dict) or hours.get("holiday_policy_confirmed") is not True:
-        return "unknown"
-    weekly = hours.get("weekly", {})
-    exceptions = hours.get("exceptions", {})
-    intervals = []
-    unknown = False
-    day = start.date() - timedelta(days=1)
-    while day <= end.date():
-        slots = exceptions.get(day.isoformat(), weekly.get(str(day.weekday())))
-        if slots is None:
-            unknown = True
-        else:
+def validate_hours(hours):
+    if not isinstance(hours, dict):
+        raise ValueError("운영시간 형식 오류")
+    for section in ["weekly", "exceptions"]:
+        mapping = hours.get(section, {})
+        if not isinstance(mapping, dict):
+            raise ValueError("운영시간 목록 오류")
+        for key, slots in mapping.items():
+            if section == "weekly":
+                if str(key) not in [str(i) for i in range(7)]:
+                    raise ValueError("요일 오류")
+            else:
+                date.fromisoformat(key)
+            if not isinstance(slots, list):
+                raise ValueError("시간 구간 배열 필요")
             for pair in slots:
+                if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                    raise ValueError("시작·종료 쌍 필요")
                 a, b = map(minutes_at, pair)
-                midnight = datetime.combine(day, time.min)
-                left = midnight + timedelta(minutes=a)
-                right = midnight + timedelta(minutes=b)
-                if b <= a:
-                    right += timedelta(days=1)
-                intervals.append((left, right))
-        day += timedelta(days=1)
-    cursor = start
-    for left, right in sorted(intervals):
-        if left <= cursor < right:
-            cursor = max(cursor, right)
-        if cursor >= end:
+                # 같은 시각은 24시간인지 휴무인지 모호하므로 허용하지 않음.
+                if a == 1440 or a == b:
+                    raise ValueError("24시간은 00:00~24:00으로 명시")
+
+
+def operation_status(hours, start, end):
+    """운영 구간의 합집합이 전체 이용시간을 포함하는지 확인. 종료시각 출차 허용."""
+    try:
+        validate_hours(hours)
+        if hours.get("holiday_policy_confirmed") is not True or end <= start:
+            return "unknown"
+        weekly, exceptions = hours.get("weekly", {}), hours.get("exceptions", {})
+        intervals, possible = [], []
+        day = start.date() - timedelta(days=1)
+        while day <= end.date():
+            slots = exceptions.get(day.isoformat(), weekly.get(str(day.weekday())))
+            midnight = datetime.combine(day, time.min)
+            if slots is None:
+                # 알 수 없는 전날 심야 운영까지 고려하되, 불필요한 미확인 전파 방지.
+                possible.append((midnight, midnight+timedelta(days=2)))
+            else:
+                for pair in slots:
+                    a, b = map(minutes_at, pair)
+                    left = midnight+timedelta(minutes=a)
+                    right = midnight+timedelta(minutes=b)
+                    if b < a:
+                        right += timedelta(days=1)
+                    intervals.append((left,right))
+            day += timedelta(days=1)
+        def covers(parts):
+            cursor = start
+            for left,right in sorted(parts):
+                if left <= cursor < right:
+                    cursor = max(cursor,right)
+                if cursor >= end:
+                    return True
+            return False
+        if covers(intervals):
             return "open"
-    return "unknown" if unknown else "closed"
+        return "unknown" if covers(intervals+possible) else "closed"
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        return "unknown"
 
 
 def estimate_fee(tariff, start, end, use_discount=False):
@@ -160,33 +193,42 @@ def estimate_fee(tariff, start, end, use_discount=False):
     if any(key not in tariff for key in required):
         return None, "요금 항목 누락 · 확인 필요"
     try:
-        free, base_min, base_fee, step_min, step_fee = [float(tariff[k]) for k in required[:5]]
-        cap = tariff["daily_cap"]
-        if not all(math.isfinite(v) and v >= 0 for v in [free, base_min, base_fee, step_min, step_fee]) or step_min <= 0:
-            raise ValueError
-        if cap is not None and (not math.isfinite(float(cap)) or float(cap) < 0):
-            raise ValueError
-        disc = tariff["discount"] if use_discount else None
-        if disc is not None:
-            if not isinstance(disc, dict) or not all(k in disc for k in ["free_min", "percent", "amount", "label"]):
+        def number(value):
+            if isinstance(value, bool):
                 raise ValueError
-            df, percent, amount = [float(disc[k]) for k in ["free_min", "percent", "amount"]]
-            if not all(math.isfinite(v) and v >= 0 for v in [df, percent, amount]) or percent > 100:
+            result = Decimal(str(value))
+            if not result.is_finite() or result < 0:
+                raise ValueError
+            return result
+        free, base_min, base_fee, step_min, step_fee = [number(tariff[k]) for k in required[:5]]
+        if step_min <= 0:
+            raise ValueError
+        cap = None if tariff["daily_cap"] is None else number(tariff["daily_cap"])
+        disc = tariff["discount"]
+        if disc is not None:
+            if not isinstance(disc, dict) or not all(k in disc for k in ["free_min","percent","amount","label"]):
+                raise ValueError
+            df, percent, amount = [number(disc[k]) for k in ["free_min","percent","amount"]]
+            if percent > 100 or not isinstance(disc["label"],str) or not disc["label"].strip():
                 raise ValueError
         else:
-            df = percent = amount = 0
-        total = math.ceil((end - start).total_seconds()/60)
+            df = percent = amount = Decimal(0)
+        if not use_discount:
+            df = percent = amount = Decimal(0)
+        total = Decimal(math.ceil((end-start).total_seconds()/60))
         if total <= 0:
             raise ValueError
-        billable = max(0, total - free - df)
-        cost = 0 if billable == 0 else base_fee + math.ceil(max(0, billable-base_min)/step_min)*step_fee
-        cost = max(0, cost*(1-percent/100)-amount)
+        billable = max(Decimal(0),total-free-df)
+        extra = (max(Decimal(0),billable-base_min)/step_min).to_integral_value(rounding=ROUND_CEILING)
+        cost = Decimal(0) if billable == 0 else base_fee+extra*step_fee
+        cost = max(Decimal(0),cost*(1-percent/100)-amount)
         if cap is not None:
-            cost = min(cost, float(cap))
-        if not float(cost).is_integer():
+            cost = min(cost,cap)
+        if cost != cost.to_integral_value():
             return None, "할인 후 원 미만 반올림 규정 확인 필요"
-        return int(cost), "등록된 단일 요금제 기준 예상액 · 현장 확인 필요"
-    except (TypeError, ValueError, OverflowError):
+        detail = "할인 조건 적용" if use_discount and disc is not None else "할인 미적용"
+        return int(cost), f"등록된 단일 요금제 기준 예상액 · {detail} · 현장 확인 필요"
+    except (TypeError, ValueError, OverflowError, InvalidOperation):
         return None, "요금 규칙 오류 또는 미확인 · 확인 필요"
 
 
@@ -202,16 +244,21 @@ def tariff_text(t):
 
 
 def hours_text(h, start, end):
-    if not isinstance(h, dict):
+    try:
+        validate_hours(h)
+        entries = []
+        day = start.date()
+        while day <= end.date():
+            slots = h.get("exceptions", {}).get(day.isoformat(),h.get("weekly", {}).get(str(day.weekday())))
+            def label(a,b):
+                suffix = " (익일 종료)" if minutes_at(b)<minutes_at(a) else ""
+                return f"{a}–{b}{suffix}"
+            text = UNKNOWN if slots is None else ("휴무" if not slots else ", ".join(label(a,b) for a,b in slots))
+            entries.append(f"{day:%m/%d} {text}")
+            day += timedelta(days=1)
+        return " / ".join(entries)
+    except (ValueError,TypeError,AttributeError):
         return UNKNOWN
-    entries = []
-    day = start.date()
-    while day <= end.date():
-        slots = h.get("exceptions", {}).get(day.isoformat(), h.get("weekly", {}).get(str(day.weekday())))
-        text = UNKNOWN if slots is None else ("휴무" if not slots else ", ".join(f"{a}–{b}" for a, b in slots))
-        entries.append(f"{day:%m/%d} {text}")
-        day += timedelta(days=1)
-    return " / ".join(entries)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -249,17 +296,13 @@ def validated_records():
                 raise ValueError
             h = r.get("hours")
             if h is not None:
-                if not isinstance(h, dict):
+                validate_hours(h)
+            if r.get("tariff") is not None and not isinstance(r["tariff"],dict):
+                raise ValueError
+            if r.get("tariff", {}) and r["tariff"].get("complete") is True:
+                check_start = datetime.combine(datetime.now(KST).date(),time(12))
+                if estimate_fee(r["tariff"],check_start,check_start+timedelta(hours=1))[0] is None:
                     raise ValueError
-                for key, slots in h.get("weekly", {}).items():
-                    if str(key) not in [str(i) for i in range(7)]:
-                        raise ValueError
-                    for a, b in slots:
-                        minutes_at(a); minutes_at(b)
-                for key, slots in h.get("exceptions", {}).items():
-                    date.fromisoformat(key)
-                    for a, b in slots:
-                        minutes_at(a); minutes_at(b)
             if not isinstance(r.get("affiliations", []), list):
                 raise ValueError
             if any(not isinstance(a, dict) or a.get("kind") not in ["전용", "제휴"] or not a.get("destination_id") for a in r.get("affiliations", [])):
@@ -379,6 +422,9 @@ def main():
         st.session_state["mode"] = mode
         st.session_state.pop("destinations", None)
         st.session_state.pop("destination_choice", None)
+        for state_key in list(st.session_state):
+            if state_key.startswith(("discounts_", "lot_")):
+                del st.session_state[state_key]
     if submitted:
         st.session_state.pop("destination_choice", None)
         st.session_state["destinations"] = []
@@ -421,6 +467,8 @@ def main():
     criterion = st.radio("추천 기준", ["요금 우선","거리 우선","요금·거리 균형"], horizontal=True)
     start = datetime.combine(day, clock)
     end = start+timedelta(minutes=int(duration))
+    if not demo and start < datetime.now(KST).replace(tzinfo=None):
+        st.warning("입차 예정 시간이 현재보다 이전입니다. 방문 시간을 다시 확인해 주세요.")
     st.caption(f"이용 구간 {start:%m/%d %H:%M} → {end:%m/%d %H:%M} · 일반 승용차 / 1회 입출차")
     lots = []
     if demo:
@@ -464,7 +512,9 @@ def main():
             return
     st.subheader("③ 목적지 전용·제휴 먼저 확인")
     affiliated = [p for p in lots if affiliation(p,dest["id"])]
-    if not affiliated:
+    if not affiliated and demo:
+        st.info("가상 데이터 설정상 이 목적지의 전용·제휴 주차장은 없습니다. 주변 후보를 비교해 보세요.")
+    elif not affiliated:
         st.info("전용·제휴 주차장: 확인 필요. 검색되지 않았다는 이유만으로 '없음'으로 판단하지 않습니다. 목적지에 문의해 주세요.")
     else:
         st.caption("전용·제휴라는 이유로 순위를 높이지 않습니다. 아래 주변 주차장과 같은 기준으로 비교합니다.")
@@ -522,7 +572,10 @@ def main():
         candidates = {r["id"]:r for r in top}
         candidates.update({r["id"]:r for r in rows})
         # top의 순위를 유지하며 미확인 후보도 상세 조회 가능
-        choice = st.selectbox("지도·상세정보를 볼 주차장",list(candidates),format_func=lambda i:candidates[i]["name"], key=f"lot_{mode}_{dest['id']}")
+        lot_key = f"lot_{mode}_{dest['id']}"
+        if st.session_state.get(lot_key) not in candidates:
+            st.session_state.pop(lot_key,None)
+        choice = st.selectbox("지도·상세정보를 볼 주차장",list(candidates),format_func=lambda i:candidates[i]["name"], key=lot_key)
         selected = candidates[choice]
         with st.expander("선택한 주차장 상세정보",expanded=False):
             show_lot(selected,dest["id"],demo)
@@ -555,6 +608,14 @@ def show_qr():
         if not https_url(value) or len(value)>1500:
             st.warning("접속 가능한 공개 HTTPS 배포 주소를 입력하세요. localhost 주소는 사용할 수 없습니다.")
             return
+        # QR 모듈은 여기서만 가져옵니다. 설치 누락 시에도 검색·추천은 계속 동작.
+        try:
+            import qrcode
+            from PIL import Image  # qrcode[pil] 의존성까지 확인
+        except ImportError:
+            st.warning("QR 기능에 필요한 패키지가 설치되지 않았습니다. requirements.txt에 qrcode[pil]과 Pillow를 넣고 앱을 재배포하세요.")
+            st.link_button("앱 주소로 접속",value,use_container_width=True)
+            return
         try:
             qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M,box_size=8,border=4)
             qr.add_data(value); qr.make(fit=True)
@@ -563,7 +624,7 @@ def show_qr():
             st.image(output.getvalue(),width=220,caption="앱 주소 연결 QR · 접속 가능 여부는 별도 확인하세요")
             st.download_button("QR코드 PNG 다운로드",output.getvalue(),file_name="parking_app_qr.png",mime="image/png",use_container_width=True)
             st.link_button("배포 주소 열어 확인",value,use_container_width=True)
-        except (ValueError, qrcode.exceptions.DataOverflowError):
+        except (ValueError, OSError, qrcode.exceptions.DataOverflowError):
             st.warning("QR을 만들 수 없습니다. 더 짧은 배포 주소를 입력하세요.")
 
 
