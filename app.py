@@ -11,10 +11,8 @@
    streamlit run app.py 로 실행합니다. Python 3.11 이상 권장.
 3. App settings > Secrets에 아래 TOML을 입력합니다. 키를 GitHub에 커밋하지 마세요.
    KAKAO_REST_API_KEY = "카카오_REST_API_키"
-   APP_URL = "https://내앱.streamlit.app"
    카카오 개발자 앱에서 카카오맵 API 이용 설정/권한/쿼터를 확인하세요.
 4. API 키 없이 '가상 데이터' 모드로 검색·비교·요금·추천을 모두 시연할 수 있습니다.
-   QR은 앱의 공개 HTTPS 주소를 여는 링크입니다. 서버 실행 기능이 아닙니다.
 
 [간편 화면 기본 조건]
 - 방문 날짜/입차 시간/예상 주차 시간/검색 반경 입력란은 없습니다.
@@ -455,7 +453,6 @@ def main():
         destinations, _ = demo_data()
     if not destinations:
         st.caption("검색 결과가 없으면 지역명 또는 다른 장소 이름으로 검색하세요. 시연은 '햇살식당' 또는 '초록정원'을 사용하세요.")
-        show_qr()
         return
     by_id = {d["id"]: d for d in destinations}
     selected_id = st.selectbox("검색 결과 · 주소를 보고 선택하세요", list(by_id),
@@ -505,7 +502,6 @@ def main():
             st.error("주차장 조회에 실패했습니다. 연결·API 권한을 확인하고 아래 버튼으로 재시도하세요.")
             if st.button("주차장 조회 다시 시도",use_container_width=True):
                 st.rerun()
-            show_qr()
             return
     st.subheader("② 목적지 전용·제휴 먼저 확인")
     st.caption(f"자동 비교 기준: 2시간 주차 · 주변 반경 1km · {'가상 시연 기준 ' if demo else '한국 시간 '}{start:%m/%d %H:%M}~{end:%m/%d %H:%M}")
@@ -590,41 +586,10 @@ def main():
             url = f"https://map.kakao.com/link/to/{quote(selected['name'],safe='')},{selected['lat']},{selected['lon']}"
             st.link_button("🧭 카카오맵에서 주차장까지 길찾기",url,type="primary",use_container_width=True)
             st.caption("지도 앱 또는 웹으로 연결됩니다. 출발지는 지도에서 설정하세요. 주차 입구 위치도 확인해 주세요.")
-    st.caption("출발 전 운영기관에 요금·할인·운영 여부를 재확인하세요. 예상요금은 결제금액 보장이 아닙니다.")
+    st.caption("예상요금은 등록된 요금표 기준입니다. 할인 적용 및 실제 이용시간에 따라 달라질 수 있습니다.")
     if not demo:
         st.link_button("데이터 출처 · 카카오맵 REST API 안내","https://developers.kakao.com/docs/en/kakaomap/rest-api")
-    show_qr()
 
-
-def show_qr():
-    with st.expander("📱 앱 접속 QR코드 · 다운로드",expanded=False):
-        st.caption("공개 배포 주소를 연결합니다. 휴대폰 카메라로 스캔하면 브라우저에서 앱이 열립니다.")
-        value = st.text_input("앱의 공개 HTTPS 주소",value=str(secret("APP_URL","")), placeholder="https://내앱.streamlit.app",key="public_app_url")
-        if not value.strip():
-            st.info("배포 후 주소를 입력하거나 Secrets의 APP_URL을 설정하세요.")
-            return
-        value = value.strip()
-        if not https_url(value) or len(value)>1500:
-            st.warning("접속 가능한 공개 HTTPS 배포 주소를 입력하세요. localhost 주소는 사용할 수 없습니다.")
-            return
-        # QR 모듈은 여기서만 가져옵니다. 설치 누락 시에도 검색·추천은 계속 동작.
-        try:
-            import qrcode
-            from PIL import Image  # qrcode[pil] 의존성까지 확인
-        except ImportError:
-            st.warning("QR 기능에 필요한 패키지가 설치되지 않았습니다. requirements.txt에 qrcode[pil]과 Pillow를 넣고 앱을 재배포하세요.")
-            st.link_button("앱 주소로 접속",value,use_container_width=True)
-            return
-        try:
-            qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M,box_size=8,border=4)
-            qr.add_data(value); qr.make(fit=True)
-            image = qr.make_image(fill_color="#123C31",back_color="white")
-            output = io.BytesIO(); image.save(output,format="PNG")
-            st.image(output.getvalue(),width=220,caption="앱 주소 연결 QR · 접속 가능 여부는 별도 확인하세요")
-            st.download_button("QR코드 PNG 다운로드",output.getvalue(),file_name="parking_app_qr.png",mime="image/png",use_container_width=True)
-            st.link_button("배포 주소 열어 확인",value,use_container_width=True)
-        except (ValueError, OSError, qrcode.exceptions.DataOverflowError):
-            st.warning("QR을 만들 수 없습니다. 더 짧은 배포 주소를 입력하세요.")
 
 
 if __name__ == "__main__":
