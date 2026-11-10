@@ -427,7 +427,7 @@ def show_lot(r, destination_id, demo, compact=False):
 
 def main():
     st.set_page_config(page_title="목적지 근처 주차장", page_icon="🅿️", layout="centered")
-    # 첫 접속 세션에만 약 2초 표시. 검색/화면 이동 시 재생하지 않습니다.
+    # 첫 접속 세션에만 약 5초 표시. 검색/화면 이동 시 재생하지 않습니다.
     if not st.session_state.get("intro_seen",False):
         splash=st.empty()
         # HTML을 한 줄로 전달해 들여쓰기가 코드 블록으로 해석되지 않게 합니다.
@@ -442,7 +442,7 @@ def main():
             '<div class="parking-intro-title">근처 주차장 찾기</div></div>'
         )
         splash.markdown(splash_html,unsafe_allow_html=True)
-        clock.sleep(2)
+        clock.sleep(5)
         st.session_state["intro_seen"]=True
         splash.empty()
 
