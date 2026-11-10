@@ -398,198 +398,164 @@ def show_lot(r, destination_id, demo, compact=False):
 def main():
     st.set_page_config(page_title="목적지 옆 주차장", page_icon="🅿️", layout="centered")
     st.markdown("""<style>
-    .block-container{max-width:800px;padding-top:1.4rem;padding-bottom:2rem}
-    h1{font-size:1.85rem!important}h2{font-size:1.35rem!important}
-    button{min-height:48px!important;white-space:normal!important}
+    .block-container{max-width:620px;padding:1rem 1rem 1.5rem}
+    h1{font-size:1.6rem!important}h2,h3{font-size:1.2rem!important}
+    button{min-height:46px!important;white-space:normal!important}
+    [data-testid="stVerticalBlock"]{gap:.65rem}
     [data-testid="stBaseButton-primary"]{background:#176B55;border-color:#176B55}
-    [data-testid="stMarkdownContainer"] p{font-size:1.04rem;overflow-wrap:anywhere}
-    [data-testid="stCaptionContainer"] p{font-size:.91rem}
-    @media(max-width:600px){.block-container{padding-left:1rem;padding-right:1rem}
-    [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important}
-    [data-testid="stColumn"]{min-width:100%!important;width:100%!important;flex:1 1 100%!important}}
-    </style>""", unsafe_allow_html=True)
+    p{overflow-wrap:anywhere}
+    </style>""",unsafe_allow_html=True)
     st.title("🅿️ 목적지 옆 주차장")
-    st.caption("식당·나들이 장소를 고르면, 주차 조건을 한눈에 비교해 드려요.")
-    mode = st.radio("사용 모드", ["가상 데이터 · 시연", "실제 장소 · API"], horizontal=True)
-    demo = mode.startswith("가상")
-    if demo:
-        st.warning("가상 데이터 모드입니다. 실제 시설·요금·빈자리 정보가 아닙니다.")
-    else:
-        st.info("실제 장소는 카카오 API로 검색합니다. 확인된 운영·요금 정보가 없으면 확정 추천하지 않습니다.")
-    key = str(secret("KAKAO_REST_API_KEY", "")).strip()
-    today = datetime.now(KST).date()
-    with st.form("search_form"):
-        query = st.text_input("① 어디로 가세요?", placeholder="예: 햇살식당 / 경복궁 / 부산 맛집", max_chars=100)
-        submitted = st.form_submit_button("장소 검색", type="primary", use_container_width=True)
-    if st.session_state.get("mode") != mode:
-        st.session_state["mode"] = mode
-        st.session_state.pop("destinations", None)
-        st.session_state.pop("destination_choice", None)
-        for state_key in list(st.session_state):
-            if state_key.startswith(("discounts_", "lot_")):
-                del st.session_state[state_key]
-    if submitted:
-        st.session_state.pop("destination_choice", None)
-        st.session_state["destinations"] = []
-        if demo:
-            ds, _ = demo_data()
-            q = query.strip().lower()
-            st.session_state["destinations"] = [d for d in ds if not q or q in d["name"].lower() or q in d["address"].lower()]
-        elif not query.strip():
-            st.warning("목적지 이름을 입력해 주세요.")
-        elif not key:
-            st.error("API 키가 없습니다. Secrets에 KAKAO_REST_API_KEY를 설정하거나 가상 데이터 모드를 사용하세요.")
-        else:
-            try:
-                with st.spinner("장소를 찾고 있어요…"):
-                    docs, meta = kakao_search(key, "keyword", {"query": query.strip(), "size":15})
-                st.session_state["destinations"] = [place(d) for d in docs]
-                if not meta.get("is_end", True):
-                    st.caption("검색 결과 중 첫 15개입니다. 지역명을 붙여 검색하면 더 정확해요.")
-            except (requests.RequestException, ValueError, KeyError):
-                st.error("장소 검색에 실패했습니다. API 키·이용 권한·쿼터·연결 상태를 확인한 뒤 다시 검색해 주세요.")
-    destinations = st.session_state.get("destinations", [])
-    if demo and "destinations" not in st.session_state:
-        destinations, _ = demo_data()
-    if not destinations:
-        st.caption("검색 결과가 없으면 지역명 또는 다른 장소 이름으로 검색하세요. 시연은 '햇살식당' 또는 '초록정원'을 사용하세요.")
+    key=str(secret("KAKAO_REST_API_KEY", "")).strip()
+    ss=st.session_state
+    ss.setdefault("screen", "search")
+    screen=ss["screen"]
+    st.caption({"search":"1 검색  ›  2 비교  ›  3 지도·상세", "compare":"1 검색  ›  ② 비교  ›  3 지도·상세", "detail":"1 검색  ›  2 비교  ›  ③ 지도·상세"}[screen])
+    if screen=="search":
+        mode=st.radio("데이터",["실제 장소", "가상 시연"],index=0 if key else 1,horizontal=True)
+        demo=mode=="가상 시연"
+        if ss.get("mobile_mode")!=mode:
+            ss["mobile_mode"]=mode
+            ss.pop("mobile_results",None)
+            ss.pop("mobile_destination",None)
+        if demo: st.caption("가상 데이터 · 실제 시설·요금 정보가 아닙니다.")
+        with st.form("mobile_search"):
+            query=st.text_input("어디로 가세요?",placeholder="장소명 또는 지역 + 장소명",max_chars=100)
+            submit=st.form_submit_button("장소 검색",type="primary",use_container_width=True)
+        if submit:
+            ss.pop("mobile_destination",None)
+            if demo:
+                ds,_=demo_data()
+                q=query.strip().lower()
+                ss["mobile_results"]=[d for d in ds if not q or q in d["name"].lower() or q in d["address"].lower()]
+            elif not key:
+                st.error("Secrets에 KAKAO_REST_API_KEY를 설정해 주세요.")
+            elif not query.strip(): st.warning("장소 이름을 입력해 주세요.")
+            else:
+                try:
+                    docs,_=kakao_search(key,"keyword",{"query":query.strip(),"size":15})
+                    ss["mobile_results"]=[place(d) for d in docs]
+                except (requests.RequestException,ValueError,KeyError):
+                    ss["mobile_results"]=[]
+                    st.error("검색 연결에 실패했습니다. 키와 API 권한을 확인해 주세요.")
+        results=ss.get("mobile_results",[])
+        if demo and "mobile_results" not in ss: results=demo_data()[0]
+        if results:
+            by_id={d["id"]:d for d in results}
+            selected=st.selectbox("목적지 선택 · 주소 포함",list(by_id),format_func=lambda i:by_id[i]["name"]+" · "+by_id[i]["address"],key="mobile_destination")
+            if st.button("주변 주차장 비교 →",type="primary",use_container_width=True):
+                ss["destination"]=by_id[selected];ss["demo"]=demo
+                ss["visit_start"]=(datetime.combine(datetime.now(KST).date(),time(12,0)) if demo else datetime.now(KST).replace(tzinfo=None,second=0,microsecond=0))
+                ss.pop("mobile_lots",None);ss.pop("mobile_discounts",None)
+                ss["screen"]="compare";st.rerun()
+        elif "mobile_results" in ss: st.info("검색 결과가 없습니다. 지역명을 함께 입력해 보세요.")
         return
-    by_id = {d["id"]: d for d in destinations}
-    selected_id = st.selectbox("검색 결과 · 주소를 보고 선택하세요", list(by_id),
-                               format_func=lambda i: f"{by_id[i]['name']} | {by_id[i]['address']}", key="destination_choice")
-    dest = by_id[selected_id]
-    st.caption("선택한 주소: " + dest["address"])
-    # 방문 조건 입력 UI 제거: 간단한 기본 조건으로 자동 비교합니다.
-    duration, radius = 120, 1000
-    start = (datetime.combine(today,time(12,0)) if demo else
-             datetime.now(KST).replace(tzinfo=None,second=0,microsecond=0))
-    end = start+timedelta(minutes=duration)
-    lots = []
-    if demo:
-        _, all_lots = demo_data()
-        lots = [p for p in all_lots if distance_m(dest,p)<=radius or affiliation(p,dest["id"])]
-    elif key:
-        records = validated_records()
-        try:
-            with st.spinner("주변 주차장을 확인하고 있어요…"):
-                docs = []
-                last_meta = {}
-                for page in range(1,4):
-                    part, last_meta = kakao_search(key,"category", {"category_group_code":"PK6", "x":dest["lon"],"y":dest["lat"],"radius":radius,"sort":"distance","size":15,"page":page})
-                    docs.extend(part)
-                    if last_meta.get("is_end",True):
-                        break
-                indexed = {str(d["id"]): d for d in docs}
-                for pid, rec in records.items():
-                    if pid not in indexed and affiliation(rec,dest["id"]) and rec.get("lookup_query"):
-                        more, _ = kakao_search(key,"keyword",{"query":rec["lookup_query"],"category_group_code":"PK6","size":15})
-                        for d in more:
-                            if str(d["id"]) == pid:
-                                indexed[pid] = d
-                for pid,d in indexed.items():
-                    p = place(d)
-                    rec = records.get(pid,{})
-                    for field in ["hours","tariff","affiliations","source_url","verified_on"]:
-                        if field in rec:
-                            p[field] = rec[field]
-                    lots.append(p)
-                if not last_meta.get("is_end",True):
-                    st.caption("주변 검색은 가까운 최대 45개 결과입니다. 지역 내 모든 주차장을 포함하지 않을 수 있습니다.")
-                missing = [pid for pid,r in records.items() if affiliation(r,dest["id"]) and pid not in indexed]
-                if missing:
-                    st.warning("등록된 전용·제휴 주차장 일부는 지도 위치 조회가 안 되어 목록에서 제외했습니다. 목적지에 직접 문의하세요.")
-        except (requests.RequestException,ValueError,KeyError):
-            st.error("주차장 조회에 실패했습니다. 연결·API 권한을 확인하고 아래 버튼으로 재시도하세요.")
-            if st.button("주차장 조회 다시 시도",use_container_width=True):
-                st.rerun()
-            return
-    st.subheader("② 목적지 전용·제휴 먼저 확인")
-    st.caption(f"자동 비교 기준: 2시간 주차 · 주변 반경 1km · {'가상 시연 기준 ' if demo else '한국 시간 '}{start:%m/%d %H:%M}~{end:%m/%d %H:%M}")
-    affiliated = [p for p in lots if affiliation(p,dest["id"])]
-    if not affiliated and demo:
-        st.info("가상 데이터 설정상 이 목적지의 전용·제휴 주차장은 없습니다. 주변 후보를 비교해 보세요.")
-    elif not affiliated:
-        st.info("전용·제휴 주차장: 확인 필요. 검색되지 않았다는 이유만으로 '없음'으로 판단하지 않습니다. 목적지에 문의해 주세요.")
-    else:
-        st.caption("전용·제휴라는 이유로 순위를 높이지 않습니다. 아래 주변 주차장과 같은 기준으로 비교합니다.")
-    discount_ids = []
-    for p in lots:
-        d = (p.get("tariff") or {}).get("discount")
-        if isinstance(d,dict):
-            discount_ids.append(p["id"])
-    picked_discounts = []
-    if discount_ids:
-        with st.expander("방문객 할인 조건을 충족하나요? · 직접 선택", expanded=False):
-            discount_map = {p["id"]:p for p in lots}
-            picked_discounts = st.multiselect("조건을 충족하는 주차장만 선택", discount_ids, default=[],
-                format_func=lambda i: f"{discount_map[i]['name']} — {discount_map[i]['tariff']['discount'].get('label',UNKNOWN)}",
-                key=f"discounts_{mode}_{dest['id']}")
-            st.caption("영수증·인증·구매금액 등 조건을 충족한 경우만 적용됩니다. 중복 할인 미지원.")
-    rows = []
-    for p in lots:
-        cost, note = estimate_fee(p.get("tariff"),start,end,p["id"] in picked_discounts)
-        rows.append(dict(p,cost=cost,fee_note=note,distance=distance_m(dest,p),
-                         status=operation_status(p.get("hours"),start,end),hours_label=hours_text(p.get("hours"),start,end)))
-    for r in rows:
-        if affiliation(r,dest["id"]):
-            with st.expander(r["name"] + " · " + affiliation(r,dest["id"]), expanded=True):
-                show_lot(r,dest["id"],demo)
-    st.subheader("③ 추천 주차장 · 상위 3곳")
-    criterion = st.radio("추천 기준", ["요금 우선","거리 우선","요금·거리 균형"], horizontal=True)
-    st.caption("모든 거리는 목적지와의 직선거리입니다. 도보 경로·도보 시간은 제공하지 않습니다. 운영 구간 전체가 확인된 주차장만 추천합니다.")
-    explanations = {
-        "요금 우선":"예상요금이 낮은 순 → 동률이면 직선거리가 가까운 순. 요금 미확인 제외.",
-        "거리 우선":"직선거리가 가까운 순 → 동률이면 확인된 예상요금이 낮은 순. 요금 미확인도 포함하며 표시합니다.",
-        "요금·거리 균형":"운영·요금 확인 후보 안에서 요금과 거리를 각각 0~1로 정규화해 50%씩 합산합니다. 낮을수록 우선이며 동률은 요금·거리 순. 미확인 요금 제외."}
-    st.caption(explanations[criterion])
-    ranked = rank_lots(rows,criterion)
-    top = ranked[:3]
-    if not top:
-        st.warning("조건을 확인할 수 있는 추천 후보가 없습니다. 운영시간·요금 확인 후 다시 비교하세요. 미확인 후보는 아래에서 볼 수 있습니다.")
-    for i,r in enumerate(top,1):
-        with st.container(border=True):
-            st.markdown(f"**{i}순위**")
-            show_lot(r,dest["id"],demo,compact=True)
-            why = f"예상요금 {r['cost']:,}원 기준으로 우선" if criterion=="요금 우선" else (f"직선 {r['distance']:,}m로 가까운 순" if criterion=="거리 우선" else f"균형 점수 {r['score']:.3f} (요금 50% + 거리 50%)")
-            st.caption("추천 이유: " + why + " · 등록된 시간표상 전체 이용 구간 운영")
-            if r["cost"] is None:
-                st.caption("주의: 요금 미확인 · 저렴하다는 의미가 아닙니다.")
-    closed = [r for r in rows if r["status"]=="closed"]
-    unknown = [r for r in rows if r["status"]=="unknown"]
-    st.caption(f"조회 {len(rows)}곳 · 운영시간 밖 {len(closed)}곳 추천 제외 · 운영 미확인 {len(unknown)}곳 확정 추천 제외 · 실시간 잔여 자리 확인 불가")
-    if rows:
-        with st.expander("전체 후보 비교 · 미확인 / 운영시간 밖 포함",expanded=False):
-            order = sorted(rows,key=lambda r:r["distance"])
-            st.dataframe(pd.DataFrame([{"주차장":r["name"],"예상요금":f"{r['cost']:,}원" if r["cost"] is not None else UNKNOWN,
-                "직선거리":f"{r['distance']:,}m","이용시간 운영":{"open":"시간표상 운영","closed":"운영시간 밖","unknown":UNKNOWN}[r["status"]],
-                "운영시간":r["hours_label"],"주소":r["address"]} for r in order]), hide_index=True,use_container_width=True)
-            st.caption("작은 화면에서는 아래 주차장 선택 후 세로형 상세정보를 확인하세요.")
-        candidates = {r["id"]:r for r in top}
-        candidates.update({r["id"]:r for r in rows})
-        # top의 순위를 유지하며 미확인 후보도 상세 조회 가능
-        lot_key = f"lot_{mode}_{dest['id']}"
-        if st.session_state.get(lot_key) not in candidates:
-            st.session_state.pop(lot_key,None)
-        choice = st.selectbox("지도·상세정보를 볼 주차장",list(candidates),format_func=lambda i:candidates[i]["name"], key=lot_key)
-        selected = candidates[choice]
-        with st.expander("선택한 주차장 상세정보",expanded=False):
-            show_lot(selected,dest["id"],demo)
-            st.write("이용시간 운영: " + {"open":"등록 시간표상 운영","closed":"운영시간 밖 · 추천 제외","unknown":UNKNOWN}[selected["status"]])
-        st.caption("지도: 목적지와 선택 주차장 두 지점 · 길찾기 경로가 아닙니다.")
-        st.map(pd.DataFrame([{"lat":dest["lat"],"lon":dest["lon"],"color":"#176B55","size":80},
-                             {"lat":selected["lat"],"lon":selected["lon"],"color":"#E87439","size":120}]),
-               latitude="lat",longitude="lon",color="color",size="size",height=260)
-        st.caption("초록 = 목적지 · 주황 = 선택 주차장")
+    if st.button("← 장소 다시 찾기",key="back_search"):
+        ss["screen"]="search";st.rerun()
+    dest=ss["destination"];demo=ss["demo"]
+    start=ss["visit_start"];end=start+timedelta(minutes=120);radius=1000
+    st.markdown("**"+dest["name"]+"**"+(" · 가상 데이터" if demo else ""))
+    if "mobile_lots" not in ss:
+        lots = []
         if demo:
-            st.info("가상 주차장으로 잘못 이동하지 않도록 시연 모드에서는 길찾기를 연결하지 않습니다.")
-        else:
-            url = f"https://map.kakao.com/link/to/{quote(selected['name'],safe='')},{selected['lat']},{selected['lon']}"
-            st.link_button("🧭 카카오맵에서 주차장까지 길찾기",url,type="primary",use_container_width=True)
-            st.caption("지도 앱 또는 웹으로 연결됩니다. 출발지는 지도에서 설정하세요. 주차 입구 위치도 확인해 주세요.")
-    st.caption("예상요금은 등록된 요금표 기준입니다. 할인 적용 및 실제 이용시간에 따라 달라질 수 있습니다.")
+            _, all_lots = demo_data()
+            lots = [p for p in all_lots if distance_m(dest,p)<=radius or affiliation(p,dest["id"])]
+        elif key:
+            records = validated_records()
+            try:
+                with st.spinner("주변 주차장을 확인하고 있어요…"):
+                    docs = []
+                    last_meta = {}
+                    for page in range(1,4):
+                        part, last_meta = kakao_search(key,"category", {"category_group_code":"PK6", "x":dest["lon"],"y":dest["lat"],"radius":radius,"sort":"distance","size":15,"page":page})
+                        docs.extend(part)
+                        if last_meta.get("is_end",True):
+                            break
+                    indexed = {str(d["id"]): d for d in docs}
+                    for pid, rec in records.items():
+                        if pid not in indexed and affiliation(rec,dest["id"]) and rec.get("lookup_query"):
+                            more, _ = kakao_search(key,"keyword",{"query":rec["lookup_query"],"category_group_code":"PK6","size":15})
+                            for d in more:
+                                if str(d["id"]) == pid:
+                                    indexed[pid] = d
+                    for pid,d in indexed.items():
+                        p = place(d)
+                        rec = records.get(pid,{})
+                        for field in ["hours","tariff","affiliations","source_url","verified_on"]:
+                            if field in rec:
+                                p[field] = rec[field]
+                        lots.append(p)
+                    if not last_meta.get("is_end",True):
+                        st.caption("주변 검색은 가까운 최대 45개 결과입니다. 지역 내 모든 주차장을 포함하지 않을 수 있습니다.")
+                    missing = [pid for pid,r in records.items() if affiliation(r,dest["id"]) and pid not in indexed]
+                    if missing:
+                        st.warning("등록된 전용·제휴 주차장 일부는 지도 위치 조회가 안 되어 목록에서 제외했습니다. 목적지에 직접 문의하세요.")
+            except (requests.RequestException,ValueError,KeyError):
+                st.error("주차장 조회에 실패했습니다. 연결·API 권한을 확인하고 아래 버튼으로 재시도하세요.")
+                if st.button("주차장 조회 다시 시도",use_container_width=True):
+                    st.rerun()
+                return
+        ss["mobile_lots"]=lots
+    lots=ss["mobile_lots"]
+    picked=ss.get("mobile_discounts",[])
+    rows=[]
+    for lot in lots:
+        cost,note=estimate_fee(lot.get("tariff"),start,end,lot["id"] in picked)
+        rows.append(dict(lot,cost=cost,fee_note=note,distance=distance_m(dest,lot),status=operation_status(lot.get("hours"),start,end),hours_label=hours_text(lot.get("hours"),start,end)))
+    if ss["screen"]=="compare":
+        criterion=st.selectbox("추천 기준",["요금 우선","거리 우선","요금·거리 균형"],key="mobile_criterion")
+        st.caption("2시간 주차 · 반경 1km · 직선거리")
+        ranked=rank_lots(rows,criterion)[:3]
+        for n,r in enumerate(ranked,1):
+            price=f"{r['cost']:,}원" if r['cost'] is not None else "요금 미확인"
+            kind=affiliation(r,dest["id"])
+            label=f"{n}. {r['name']}"+(f" · {kind}" if kind else "")
+            with st.container(border=True):
+                st.markdown("**"+label+"**")
+                st.write(f"{price} 예상 · 직선 {r['distance']:,}m")
+                if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
+                    ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
+        if not ranked:
+            st.info("운영·요금이 확인된 추천 후보가 없습니다.")
+        if rows and st.button("전체 후보·전용/제휴 보기 →",use_container_width=True):
+            ss["selected_lot"]=rows[0]["id"];ss["screen"]="detail";st.rerun()
+        if not rows: st.info("주변 검색 결과가 없습니다.")
+        with st.expander("추천 기준·제외 사유"):
+            st.write({"요금 우선":"요금이 낮은 순, 동률이면 가까운 순입니다.","거리 우선":"직선거리가 가까운 순입니다. 요금 미확인 후보도 포함합니다.","요금·거리 균형":"확인된 요금·거리를 각각 0~1로 정규화해 50%씩 반영합니다."}[criterion])
+            st.caption("운영시간 밖·운영 미확인 후보는 추천에서 제외합니다. 요금 우선·균형은 요금 미확인도 제외합니다. 전용·제휴 여부는 가산하지 않습니다.")
+            st.caption(f"비교 시간 {start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
+        return
+    if st.button("← 비교 결과",key="back_compare"):
+        ss["screen"]="compare";st.rerun()
+    choices={r["id"]:r for r in rows}
+    if not choices:
+        st.info("조회된 주차장이 없습니다.");return
+    initial=ss.get("selected_lot")
+    options=list(choices)
+    selected_id=st.selectbox("주차장",options,index=options.index(initial) if initial in options else 0,format_func=lambda i:choices[i]["name"]+(" · "+affiliation(choices[i],dest["id"]) if affiliation(choices[i],dest["id"]) else ""))
+    r=choices[selected_id]
+    price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 확인 필요"
+    st.write(f"**{price} · 직선 {r['distance']:,}m**")
+    st.caption(r["address"])
+    st.map(pd.DataFrame([{"lat":dest["lat"],"lon":dest["lon"],"color":"#176B55","size":18},{"lat":r["lat"],"lon":r["lon"],"color":"#E87439","size":24}]),latitude="lat",longitude="lon",color="color",size="size",height=200)
     if not demo:
-        st.link_button("데이터 출처 · 카카오맵 REST API 안내","https://developers.kakao.com/docs/en/kakaomap/rest-api")
-
+        url=f"https://map.kakao.com/link/to/{quote(r['name'],safe='')},{r['lat']},{r['lon']}"
+        st.link_button("카카오맵 길찾기",url,type="primary",use_container_width=True)
+    else: st.caption("가상 위치 · 길찾기는 실제 모드에서 제공")
+    with st.expander("운영시간·요금·방문객 할인"):
+        st.write("운영시간: "+r["hours_label"])
+        st.write("이용 구간: "+{"open":"시간표상 운영","closed":"운영시간 밖","unknown":"확인 필요"}[r["status"]])
+        st.write(tariff_text(r.get("tariff")))
+        discount=(r.get("tariff") or {}).get("discount")
+        if isinstance(discount,dict):
+            checked=st.checkbox(str(discount.get("label","방문객 할인 조건 충족")),value=r["id"] in picked,key="apply_discount_"+str(r["id"]))
+            if checked != (r["id"] in picked):
+                ss["mobile_discounts"]=list((set(picked)|{r["id"]}) if checked else (set(picked)-{r["id"]}));st.rerun()
+        else: st.caption("방문객 할인: 확인 필요" if not (r.get("tariff") or {}).get("complete") else "등록된 할인 없음")
+        st.caption(r["fee_note"])
+        st.caption("전용·제휴: "+str(affiliation(r,dest["id"]) or ("없음 (가상 설정)" if demo else "확인 필요")))
+        if https_url(r.get("source_url","")): st.link_button("요금·운영 정보 출처",r["source_url"])
+    st.caption("초록: 목적지 · 주황: 주차장 / 실시간 잔여 자리 확인 불가")
 
 
 if __name__ == "__main__":
