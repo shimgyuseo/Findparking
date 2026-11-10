@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-목적지 옆 주차장 · Streamlit 단일 화면 앱
+목적지 근처 주차장 · Streamlit 단일 화면 앱
 
 [GitHub / 배포]
 1. 이 app.py와 requirements.txt 두 파일을 같은 GitHub 폴더에 올립니다.
@@ -76,6 +76,7 @@ verified_on은 한국 기준 확인일 YYYY-MM-DD, source_url은 공식 안내 H
 
 from __future__ import annotations
 import io
+import time as clock
 import json
 import math
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
@@ -425,7 +426,25 @@ def show_lot(r, destination_id, demo, compact=False):
 
 
 def main():
-    st.set_page_config(page_title="목적지 옆 주차장", page_icon="🅿️", layout="centered")
+    st.set_page_config(page_title="목적지 근처 주차장", page_icon="🅿️", layout="centered")
+    # 첫 접속 세션에만 약 2초 표시. 검색/화면 이동 시 재생하지 않습니다.
+    if not st.session_state.get("intro_seen",False):
+        splash=st.empty()
+        splash.markdown("""<style>
+        .parking-intro{position:fixed;inset:0;z-index:999999;background:#f5faf7;
+          display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
+        .parking-intro .intro-icon{font-size:72px;line-height:1.2;margin-bottom:18px}
+        .parking-intro h1{font-size:28px!important;color:#176B55;margin:0 0 10px;word-break:keep-all}
+        .parking-intro p{color:#52665d;font-size:17px;margin:0;word-break:keep-all}
+        </style><div class="parking-intro"><div>
+        <div class="intro-icon">📍🅿️</div>
+        <h1>목적지 근처 주차장</h1>
+        <p>주차 걱정 줄이고, 가볍게 외출하세요</p>
+        </div></div>""",unsafe_allow_html=True)
+        clock.sleep(2)
+        st.session_state["intro_seen"]=True
+        splash.empty()
+
     st.markdown("""<style>
     .block-container{max-width:620px;padding:1rem 1rem 1.5rem}
     h1{font-size:1.6rem!important}h2,h3{font-size:1.2rem!important}
@@ -439,12 +458,11 @@ def main():
     .st-key-criteria_tiles button p{font-size:clamp(.8rem,3.3vw,1.05rem)!important;word-break:keep-all;line-height:1.4}
 
     </style>""",unsafe_allow_html=True)
-    st.title("🅿️ 목적지 옆 주차장")
+    st.title("🅿️ 목적지 근처 주차장")
     key=str(secret("KAKAO_REST_API_KEY", "")).strip()
     ss=st.session_state
     ss.setdefault("screen", "search")
     screen=ss["screen"]
-    st.caption({"search":"1 검색  ›  2 비교  ›  3 지도·상세", "compare":"1 검색  ›  ② 비교  ›  3 지도·상세", "detail":"1 검색  ›  2 비교  ›  ③ 지도·상세"}[screen])
     if screen=="search":
         mode=st.radio("데이터",["실제 장소", "가상 시연"],index=0 if key else 1,horizontal=True)
         demo=mode=="가상 시연"
