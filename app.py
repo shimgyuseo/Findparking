@@ -343,6 +343,35 @@ def demo_data():
          "hours":hours("18:00","23:00"),"tariff":fee(300,100,5000),"affiliations":[]},
         {"id":"demo-p5", "name":"가상 · 정보 미확인 주차장", "address":"가상시 산책로 30", "lat":37.5671,"lon":126.9770,
          "hours":None,"tariff":None,"affiliations":[]}]
+    # 실명 참고 목적지는 이름/주소만 참고했습니다. 좌표와 주차 데이터는 전부 가상입니다.
+    extra = [
+        ("대둔산양촌한우타운", "충청남도 논산시 양촌면 인천리 330-5", "https://maps.app.goo.gl/ZtiQ6CNFTJhKQYQF9"),
+        ("논산댁네", "충청남도 논산시 중앙로218번길 6", "https://share.google/18NbRJMzn8drm6zC0"),
+        ("금암광장 앞 · 사용자 지정 장소", "충청남도 계룡시 금암동 161-3 (금암광장 앞)", ""),
+        ("가상 · 금암가족식당", "가상 계룡지역 가족길 10", ""),
+        ("가상 · 계룡숲카페", "가상 계룡지역 숲길 20", ""),
+        ("가상 · 논산호수공원", "가상 논산지역 호수길 30", ""),
+        ("가상 · 양촌한옥마을", "가상 양촌지역 한옥길 40", ""),
+        ("가상 · 대둔산나들이정원", "가상 나들이지역 정원길 50", ""),
+        ("가상 · 어린이과학놀이터", "가상 체험지역 과학길 60", ""),
+        ("가상 · 주말전통시장", "가상 시장지역 장터길 70", ""),
+        ("가상 · 강변빵집", "가상 강변지역 빵집길 80", ""),
+        ("가상 · 가족문화센터", "가상 문화지역 문화길 90", "")]
+    for index,(name,address,source) in enumerate(extra):
+        did=f"demo-extra-{index}"
+        # 격리된 시연 좌표: 실제 목적지 위치로 해석하거나 길찾기에 사용하지 않습니다.
+        lat,lon=36.0+index*.025,127.0
+        destinations.append({"id":did,"name":"[가상 시연] "+name,"address":address+" · 지도 위치는 가상", "lat":lat,"lon":lon,"reference_url":source})
+        for j,(kind,base,step,cap,offset) in enumerate([
+            ("전용",1500,500,15000,.0007),
+            ("주변",500,200,7000,.0025),
+            ("제휴",1000,300,10000,.0015),
+            ("야간",300,100,5000,.0035)]):
+            lots.append({"id":f"{did}-p{j}","name":f"가상 · {name.replace('가상 · ', '')} {kind}주차장",
+                "address":"가상 주차장 주소 · 실제 시설 아님", "lat":lat+offset,"lon":lon+offset,
+                "hours":hours("18:00","23:00") if kind=="야간" else hours("00:00","24:00"),
+                "tariff":fee(base,step,cap,ds if kind in ("전용","제휴") else None),
+                "affiliations":[{"destination_id":did,"kind":kind}] if kind in ("전용","제휴") else []})
     return destinations, [dict(common, **p) for p in lots]
 
 
@@ -419,22 +448,26 @@ def main():
             ss.pop("mobile_results",None)
             ss.pop("mobile_destination",None)
         if demo: st.caption("가상 데이터 · 실제 시설·요금 정보가 아닙니다.")
-        # 한국어 음성 입력: 브라우저 음성인식 사용, 별도 API 키 불필요.
-        # HTTPS 및 마이크 권한 필요. 음성이 브라우저 제공 음성인식 서비스로
-        # 전송될 수 있습니다. 지원되지 않는 브라우저에서는 직접 입력하세요.
-        try:
-            from streamlit_mic_recorder import speech_to_text
-        except ImportError:
-            st.caption("음성 검색 설치 대기 중 · requirements.txt 교체 후 재배포해 주세요.")
+        # 안내 동의는 이 브라우저의 현재 Streamlit 세션에서 한 번만 받습니다.
+        if not ss.get("mic_notice_accepted",False):
+            if st.button("🎤 말로 장소 입력",use_container_width=True):
+                @st.dialog("마이크 사용 안내")
+                def microphone_notice():
+                    st.write("마이크를 허용하고 장소를 말해 주세요. 음성이 브라우저 음성인식 서비스로 전송될 수 있습니다.")
+                    st.caption("HTTPS와 지원 브라우저가 필요합니다. 인식되지 않으면 직접 입력할 수 있습니다.")
+                    if st.button("확인 · 음성 입력 켜기",type="primary",use_container_width=True):
+                        st.session_state["mic_notice_accepted"]=True
+                        st.rerun()
+                microphone_notice()
         else:
-            spoken = speech_to_text(
-                language="ko-KR", start_prompt="🎤 말로 장소 입력",
-                stop_prompt="⏹ 입력 마치기", just_once=True,
-                use_container_width=True, key="parking_voice_search")
-            if isinstance(spoken, str) and spoken.strip():
-                ss["mobile_query"] = spoken.strip()[:100]
-            with st.expander("마이크 사용 안내"):
-                st.caption("마이크를 허용하고 장소를 말한 뒤 검색을 누르세요. HTTPS와 지원 브라우저가 필요합니다. 음성이 브라우저 음성인식 서비스로 전송될 수 있습니다. 작동하지 않으면 직접 입력하세요.")
+            try:
+                from streamlit_mic_recorder import speech_to_text
+            except ImportError:
+                st.caption("음성 검색 설치 대기 중 · requirements.txt 교체 후 재배포해 주세요.")
+            else:
+                spoken=speech_to_text(language="ko-KR",start_prompt="🎤 말로 장소 입력",stop_prompt="⏹ 입력 마치기",just_once=True,use_container_width=True,key="parking_voice_search")
+                if isinstance(spoken,str) and spoken.strip():
+                    ss["mobile_query"]=spoken.strip()[:100]
         with st.form("mobile_search"):
             query=st.text_input("어디로 가세요?",placeholder="장소명 또는 지역 + 장소명",max_chars=100,key="mobile_query")
             submit=st.form_submit_button("장소 검색",type="primary",use_container_width=True)
