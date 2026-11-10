@@ -572,25 +572,58 @@ def main():
                         st.rerun()
         criterion=ss["mobile_criterion"]
         st.caption("2시간 주차 · 반경 1km · 직선거리")
-        ranked=rank_lots(rows,criterion)[:3]
-        for n,r in enumerate(ranked,1):
-            price=f"{r['cost']:,}원" if r['cost'] is not None else "요금 미확인"
-            kind=affiliation(r,dest["id"])
-            label=f"{n}. {r['name']}"+(f" · {kind}" if kind else "")
-            with st.container(border=True):
-                st.markdown("**"+label+"**")
-                st.write(f"{price} 예상 · 직선 {r['distance']:,}m")
-                if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
-                    ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
-        if not ranked:
-            st.info("운영·요금이 확인된 추천 후보가 없습니다.")
-        if rows and st.button("전체 후보·전용/제휴 보기 →",use_container_width=True):
-            ss["selected_lot"]=rows[0]["id"];ss["screen"]="detail";st.rerun()
-        if not rows: st.info("주변 검색 결과가 없습니다.")
-        with st.expander("추천 기준·제외 사유"):
-            st.write({"요금 우선":"요금이 낮은 순, 동률이면 가까운 순입니다.","거리 우선":"직선거리가 가까운 순입니다. 요금 미확인 후보도 포함합니다.","요금·거리 균형":"확인된 요금·거리를 각각 0~1로 정규화해 50%씩 반영합니다."}[criterion])
-            st.caption("운영시간 밖·운영 미확인 후보는 추천에서 제외합니다. 요금 우선·균형은 요금 미확인도 제외합니다. 전용·제휴 여부는 가산하지 않습니다.")
-            st.caption(f"비교 시간 {start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
+        summary={"요금 우선":"낮은 요금순 · 동률이면 가까운 곳", "거리 우선":"가까운 순 · 요금 미확인 포함", "요금·거리 균형":"요금 50% + 거리 50% 균형"}[criterion]
+        st.caption(summary+" · 운영 확인된 곳만 추천")
+        st.caption(f"{start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
+        view=st.radio("결과 종류",["추천 3곳","할인 혜택","전체 후보"],horizontal=True,label_visibility="collapsed",key="result_view")
+        if view=="추천 3곳":
+            ranked=rank_lots(rows,criterion)[:3]
+            for n,r in enumerate(ranked,1):
+                price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 미확인"
+                kind=affiliation(r,dest["id"])
+                with st.container(border=True):
+                    st.markdown(f"**{n}. {r['name']}**"+(f" · {kind}" if kind else ""))
+                    st.write(f"{price} · 직선 {r['distance']:,}m")
+                    discount=(r.get("tariff") or {}).get("discount")
+                    if isinstance(discount,dict):
+                        discounted,_=estimate_fee(r.get("tariff"),start,end,True)
+                        if discounted is not None:
+                            st.caption(f"🎁 조건 충족 시 {discounted:,}원 · 할인 혜택에서 확인")
+                    if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
+                        ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
+            if not ranked: st.info("운영·요금이 확인된 추천 후보가 없습니다. 전체 후보에서 위치를 볼 수 있습니다.")
+        elif view=="할인 혜택":
+            offers=[]
+            for r in rows:
+                discount=(r.get("tariff") or {}).get("discount")
+                if r["status"]!="open" or not isinstance(discount,dict): continue
+                regular,_=estimate_fee(r.get("tariff"),start,end,False)
+                reduced,_=estimate_fee(r.get("tariff"),start,end,True)
+                if regular is not None and reduced is not None and regular>reduced:
+                    offers.append((regular-reduced,reduced,r["distance"],r,discount,regular))
+            offers.sort(key=lambda x:(-x[0],x[1],x[2],str(x[3]["id"])))
+            st.caption("절약액이 큰 순 · 조건 충족 시 예상금액 · 최대 3곳")
+            for savings,reduced,dist,r,discount,regular in offers[:3]:
+                with st.container(border=True):
+                    st.markdown("**🎁 "+r["name"]+"**")
+                    st.write(f"{regular:,}원 → {reduced:,}원 · {savings:,}원 절약")
+                    st.caption(str(discount.get("label","할인 조건 확인 필요")))
+                    checked=st.checkbox("이 할인 조건을 충족해요",value=r["id"] in picked,key="offer_apply_"+str(r["id"])+str(r["id"] in picked))
+                    if checked != (r["id"] in picked):
+                        ss["mobile_discounts"]=list((set(picked)|{r["id"]}) if checked else (set(picked)-{r["id"]}));st.rerun()
+                    if st.button("지도·상세 →",key="offer_detail_"+str(r["id"]),use_container_width=True):
+                        ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
+            if not offers: st.info("현재 이용시간에 확인 가능한 할인 혜택이 없습니다.")
+        else:
+            choices={r["id"]:r for r in rows}
+            if choices:
+                candidate=st.selectbox("전체 주차장 · 전용/제휴 포함",list(choices),format_func=lambda i:choices[i]["name"]+(" · "+affiliation(choices[i],dest["id"]) if affiliation(choices[i],dest["id"]) else ""))
+                r=choices[candidate]
+                st.caption(r["address"])
+                st.write(f"직선 {r['distance']:,}m · "+{"open":"시간표상 운영","closed":"운영시간 밖 · 추천 제외","unknown":"운영 확인 필요 · 추천 제외"}[r["status"]])
+                if st.button("지도·상세 →",key="all_detail",use_container_width=True):
+                    ss["selected_lot"]=candidate;ss["screen"]="detail";st.rerun()
+            else: st.info("주변 검색 결과가 없습니다.")
         return
     if st.button("← 비교 결과",key="back_compare"):
         ss["screen"]="compare";st.rerun()
@@ -615,7 +648,7 @@ def main():
         st.write(tariff_text(r.get("tariff")))
         discount=(r.get("tariff") or {}).get("discount")
         if isinstance(discount,dict):
-            checked=st.checkbox(str(discount.get("label","방문객 할인 조건 충족")),value=r["id"] in picked,key="apply_discount_"+str(r["id"]))
+            checked=st.checkbox(str(discount.get("label","방문객 할인 조건 충족")),value=r["id"] in picked,key="apply_discount_"+str(r["id"])+str(r["id"] in picked))
             if checked != (r["id"] in picked):
                 ss["mobile_discounts"]=list((set(picked)|{r["id"]}) if checked else (set(picked)-{r["id"]}));st.rerun()
         else: st.caption("방문객 할인: 확인 필요" if not (r.get("tariff") or {}).get("complete") else "등록된 할인 없음")
