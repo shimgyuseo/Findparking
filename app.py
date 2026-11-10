@@ -433,6 +433,11 @@ def main():
     [data-testid="stVerticalBlock"]{gap:.65rem}
     [data-testid="stBaseButton-primary"]{background:#176B55;border-color:#176B55}
     p{overflow-wrap:anywhere}
+    .st-key-criteria_tiles [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:.5rem!important}
+    .st-key-criteria_tiles [data-testid="stColumn"]{min-width:0!important;flex:1 1 0!important;width:0!important}
+    .st-key-criteria_tiles button{width:100%!important;aspect-ratio:1 / 1;min-height:0!important;height:auto!important;border-radius:14px!important;padding:.35rem!important}
+    .st-key-criteria_tiles button p{font-size:clamp(.8rem,3.3vw,1.05rem)!important;word-break:keep-all;line-height:1.4}
+
     </style>""",unsafe_allow_html=True)
     st.title("🅿️ 목적지 옆 주차장")
     key=str(secret("KAKAO_REST_API_KEY", "")).strip()
@@ -552,7 +557,20 @@ def main():
         cost,note=estimate_fee(lot.get("tariff"),start,end,lot["id"] in picked)
         rows.append(dict(lot,cost=cost,fee_note=note,distance=distance_m(dest,lot),status=operation_status(lot.get("hours"),start,end),hours_label=hours_text(lot.get("hours"),start,end)))
     if ss["screen"]=="compare":
-        criterion=st.selectbox("추천 기준",["요금 우선","거리 우선","요금·거리 균형"],key="mobile_criterion")
+        st.caption("추천 기준")
+        criteria=["요금 우선","거리 우선","요금·거리 균형"]
+        ss.setdefault("mobile_criterion","요금 우선")
+        # 세 버튼을 모바일에서도 한 줄로 유지합니다.
+        with st.container(key="criteria_tiles"):
+            columns=st.columns(3,gap="small")
+            for column,label,icon in zip(columns,criteria,["₩","↔","⚖"]):
+                with column:
+                    if st.button(icon+" " +label,key="criterion_tile_"+label,
+                                 type="primary" if ss["mobile_criterion"]==label else "secondary",
+                                 use_container_width=True):
+                        ss["mobile_criterion"]=label
+                        st.rerun()
+        criterion=ss["mobile_criterion"]
         st.caption("2시간 주차 · 반경 1km · 직선거리")
         ranked=rank_lots(rows,criterion)[:3]
         for n,r in enumerate(ranked,1):
