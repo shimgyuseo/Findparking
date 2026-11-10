@@ -419,8 +419,24 @@ def main():
             ss.pop("mobile_results",None)
             ss.pop("mobile_destination",None)
         if demo: st.caption("가상 데이터 · 실제 시설·요금 정보가 아닙니다.")
+        # 한국어 음성 입력: 브라우저 음성인식 사용, 별도 API 키 불필요.
+        # HTTPS 및 마이크 권한 필요. 음성이 브라우저 제공 음성인식 서비스로
+        # 전송될 수 있습니다. 지원되지 않는 브라우저에서는 직접 입력하세요.
+        try:
+            from streamlit_mic_recorder import speech_to_text
+        except ImportError:
+            st.caption("음성 검색 설치 대기 중 · requirements.txt 교체 후 재배포해 주세요.")
+        else:
+            spoken = speech_to_text(
+                language="ko-KR", start_prompt="🎤 말로 장소 입력",
+                stop_prompt="⏹ 입력 마치기", just_once=True,
+                use_container_width=True, key="parking_voice_search")
+            if isinstance(spoken, str) and spoken.strip():
+                ss["mobile_query"] = spoken.strip()[:100]
+            with st.expander("마이크 사용 안내"):
+                st.caption("마이크를 허용하고 장소를 말한 뒤 검색을 누르세요. HTTPS와 지원 브라우저가 필요합니다. 음성이 브라우저 음성인식 서비스로 전송될 수 있습니다. 작동하지 않으면 직접 입력하세요.")
         with st.form("mobile_search"):
-            query=st.text_input("어디로 가세요?",placeholder="장소명 또는 지역 + 장소명",max_chars=100)
+            query=st.text_input("어디로 가세요?",placeholder="장소명 또는 지역 + 장소명",max_chars=100,key="mobile_query")
             submit=st.form_submit_button("장소 검색",type="primary",use_container_width=True)
         if submit:
             ss.pop("mobile_destination",None)
