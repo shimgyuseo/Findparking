@@ -430,17 +430,18 @@ def main():
     # 첫 접속 세션에만 약 2초 표시. 검색/화면 이동 시 재생하지 않습니다.
     if not st.session_state.get("intro_seen",False):
         splash=st.empty()
-        splash.markdown("""<style>
-        .parking-intro{position:fixed;inset:0;z-index:999999;background:#f5faf7;
-          display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
-        .parking-intro .intro-icon{font-size:72px;line-height:1.2;margin-bottom:18px}
-        .parking-intro h1{font-size:28px!important;color:#176B55;margin:0 0 10px;word-break:keep-all}
-        .parking-intro p{color:#52665d;font-size:17px;margin:0;word-break:keep-all}
-        </style><div class="parking-intro"><div>
-        <div class="intro-icon">📍🅿️</div>
-        <h1>목적지 근처 주차장</h1>
-        <p>주차 걱정 줄이고, 가볍게 외출하세요</p>
-        </div></div>""",unsafe_allow_html=True)
+        # HTML을 한 줄로 전달해 들여쓰기가 코드 블록으로 해석되지 않게 합니다.
+        splash_html = (
+            '<style>.parking-intro{position:fixed;inset:0;z-index:999999;'
+            'background:#f7faf8;display:flex;flex-direction:column;align-items:center;'
+            'justify-content:center;text-align:center;padding:24px;box-sizing:border-box;}'
+            '.parking-intro-icon{font-size:88px;line-height:1.2;margin-bottom:22px;}'
+            '.parking-intro-title{font-family:sans-serif;font-size:27px;font-weight:700;'
+            'color:#176B55;line-height:1.5;word-break:keep-all;}</style>'
+            '<div class="parking-intro"><div class="parking-intro-icon">🅿️</div>'
+            '<div class="parking-intro-title">근처 주차장 찾기</div></div>'
+        )
+        splash.markdown(splash_html,unsafe_allow_html=True)
         clock.sleep(2)
         st.session_state["intro_seen"]=True
         splash.empty()
