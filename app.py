@@ -447,7 +447,10 @@ def main():
         splash.empty()
 
     st.markdown("""<style>
-    .block-container{max-width:620px;padding:1rem 1rem 1.5rem}
+    .block-container{max-width:620px;padding:5rem 1rem 2rem!important}
+    [data-testid="stMain"]{overflow-y:auto!important}
+    h1{overflow:visible!important;line-height:1.4!important}
+    @media(max-width:600px){.block-container{padding-top:4.5rem!important}}
     h1{font-size:1.6rem!important}h2,h3{font-size:1.2rem!important}
     button{min-height:46px!important;white-space:normal!important}
     [data-testid="stVerticalBlock"]{gap:.65rem}
