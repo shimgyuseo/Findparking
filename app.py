@@ -794,7 +794,8 @@ def main():
         st.info("조회된 주차장이 없습니다.");return
     initial=ss.get("selected_lot")
     options=list(choices)
-    selected_id=st.selectbox("주차장",options,index=options.index(initial) if initial in options else 0,format_func=lambda i:choices[i]["name"]+(" · "+affiliation(choices[i],dest["id"]) if affiliation(choices[i],dest["id"]) else ""))
+    # 비교 카드에서 선택한 주차장만 상세 표시합니다.
+    selected_id=initial if initial in choices else options[0]
     r=choices[selected_id]
     price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 확인 필요"
     st.write(f"**{price} · {'가상 직선' if demo else '거리'} {r['distance']:,}m**")
