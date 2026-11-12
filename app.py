@@ -514,23 +514,34 @@ def main():
     ss=st.session_state
     # 위치는 동의 후에만 요청하며 세션 메모리에만 보관합니다.
     if not ss.get("location_prompt_done",False):
-        @st.dialog("현재 위치를 사용할까요?")
+        @st.dialog("📍 현재 위치 사용",dismissible=False)
         def location_notice():
-            st.write("현재 위치에서 주차장까지 자동차 이동거리·예상시간을 계산합니다. 위치 권한을 허용해 주세요.")
-            try:
-                from streamlit_geolocation import streamlit_geolocation
-                st.caption("아래 위치 버튼을 누른 뒤 브라우저에서 허용해 주세요.")
-                location=streamlit_geolocation()
-                if location and location.get("latitude") is not None and location.get("longitude") is not None:
-                    ss["user_location"]={"lat":float(location["latitude"]),"lon":float(location["longitude"])}
-                    ss["location_prompt_done"]=True
+            st.write("내 위치에서 주차장까지 자동차 거리와 시간을 알려드려요.")
+            if not ss.get("location_request_started",False):
+                if st.button("📍 현재 위치 확인하기",type="primary",use_container_width=True):
+                    ss["location_request_started"]=True
                     st.rerun()
-                if location and location.get("error"):
-                    st.info("위치를 가져오지 못했습니다. 브라우저 권한을 확인하거나 위치 없이 계속하세요.")
-            except ImportError:
-                st.info("위치 기능을 설치하려면 새 requirements.txt를 적용하세요.")
-            st.caption("HTTPS와 위치 권한이 필요합니다. 위치는 기록 파일에 저장하지 않습니다.")
-            st.caption("실제 검색은 위치 허용 후 사용할 수 있습니다.")
+            else:
+                try:
+                    from streamlit_geolocation import streamlit_geolocation
+                    st.caption("아래 위치 아이콘을 누르고, 브라우저에서 ‘허용’을 선택하세요.")
+                    location=streamlit_geolocation()
+                    if location and location.get("latitude") is not None and location.get("longitude") is not None:
+                        lat,lon=float(location["latitude"]),float(location["longitude"])
+                        if not (-90<=lat<=90 and -180<=lon<=180):
+                            st.error("올바른 위치를 받지 못했습니다.")
+                        else:
+                            ss["user_location"]={"lat":lat,"lon":lon}
+                            ss["location_prompt_done"]=True
+                            st.rerun()
+                    elif location and location.get("error"):
+                        st.warning("위치 권한이 차단됐거나 위치를 확인하지 못했어요. 브라우저의 위치 권한을 허용한 후 다시 시도하세요.")
+                    if st.button("다시 시도",use_container_width=True):
+                        ss["location_request_started"]=False
+                        st.rerun()
+                except ImportError:
+                    st.error("위치 기능 설치가 필요합니다. 최신 requirements.txt를 적용해 주세요.")
+            st.caption("위치는 파일에 저장하지 않습니다.")
         location_notice()
         st.stop()
     ss.setdefault("screen", "search")
