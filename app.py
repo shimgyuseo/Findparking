@@ -524,7 +524,7 @@ def main():
             else:
                 try:
                     from streamlit_js_eval import get_geolocation
-                    st.caption("브라우저의 위치 요청에서 ‘허용’을 선택해 주세요.")
+                    st.caption("현재 위치를 확인하고 있어요…")
                     # 브라우저 권한 요청은 기존 위치 구성요소가 직접 수행합니다.
                     location=get_geolocation(component_key="parking_location_request")
                     if location and isinstance(location.get("coords"),dict):
@@ -538,10 +538,10 @@ def main():
                             ss["location_prompt_done"]=True
                             st.rerun()
                     elif location and location.get("error"):
-                        st.warning("위치 권한이 차단됐거나 위치를 확인하지 못했어요. 브라우저의 위치 권한을 허용한 후 다시 시도하세요.")
-                    if st.button("다시 시도",use_container_width=True):
-                        ss["location_request_started"]=False
-                        st.rerun()
+                        st.warning("위치 권한이 차단됐거나 위치를 확인하지 못했어요. 브라우저의 위치 권한을 확인해 주세요.")
+                        if st.button("다시 시도",use_container_width=True):
+                            ss["location_request_started"]=False
+                            st.rerun()
                 except ImportError:
                     st.error("위치 기능 설치가 필요합니다. 최신 requirements.txt를 적용해 주세요.")
             st.caption("위치는 파일에 저장하지 않습니다.")
