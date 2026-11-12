@@ -411,7 +411,7 @@ def show_lot(r, destination_id, demo, compact=False):
     relation = kind if kind else ("전용·제휴 아님 (가상 설정)" if demo else "전용·제휴 관계 확인 필요")
     price = f"{r['cost']:,}원 예상" if r["cost"] is not None else "예상요금 확인 필요"
     st.markdown(f"**{r['name']}**")
-    st.write(f"{price} · {'가상 직선' if demo else '거리'} {r['distance']:,}m · {relation}")
+    st.success(f"💰 {price}　|　📍 {r['distance']:,}m")
     st.caption(r["address"])
     if not compact:
         st.write(f"운영시간: {r['hours_label']}")
@@ -742,27 +742,22 @@ def main():
                         ss["mobile_criterion"]=label
                         st.rerun()
         criterion=ss["mobile_criterion"]
-        st.caption("2시간 주차 · 목적지 반경 1km 검색")
-        st.caption("가상 직선거리" if demo else "현재 위치 → 주차장 · 교통 상황에 따라 시간 변동")
+        st.info("예상요금은 2시간 기준 · 목적지 주변 1km")
         summary={"요금 우선":"낮은 요금순 · 동률이면 가까운 곳", "거리 우선":"가까운 순 · 요금 미확인 포함", "요금·거리 균형":"요금 50% + 거리 50% 균형"}[criterion]
-        st.caption(summary)
-        st.caption(f"{start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
         ranked=rank_lots(rows,criterion)[:3]
         fallback = not ranked
         if fallback:
             # 운영 미확인을 영업 중으로 간주하지 않고 위치 검색 결과로 별도 제공.
             ranked=sorted((r for r in rows if r["status"]!="closed"),key=lambda r:r["distance"])[:3]
-            if ranked: st.caption("근처 검색 결과 · 운영시간·요금 미제공으로 가까운 순 표시 (영업 여부 미확인)")
+            if ranked: st.warning("가까운 순 표시 · 운영 여부 미확인")
         for n,r in enumerate(ranked,1):
             price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 미확인"
             kind=affiliation(r,dest["id"])
             with st.container(border=True):
                 st.markdown(f"**{n}. {r['name']}**"+(f" · {kind}" if kind else ""))
-                st.write(f"{price} · {'가상 직선' if demo else '거리'} {r['distance']:,}m")
+                st.success(f"💰 {price}　|　📍 {r['distance']:,}m")
                 if not demo:
                     st.caption(f"약 {math.ceil(r.get('drive_seconds',0)/60)}분")
-                if "public_estimate" in r and r.get("cost") is not None:
-                    st.caption("2시간 참고요금 · 상한·할인 등 미반영")
                 discount=(r.get("tariff") or {}).get("discount")
                 if isinstance(discount,dict):
                     discounted,_=estimate_fee(r.get("tariff"),start,end,True)
@@ -771,6 +766,7 @@ def main():
                 if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
                     ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
         if not ranked: st.info("현재 조건의 후보가 없습니다. 다른 장소를 검색해 주세요.")
+        st.caption("참고요금: 할인·무료시간·일일상한 미반영 · 빈자리 확인 불가")
         return
     if st.button("← 비교 결과",key="back_compare"):
         ss["screen"]="compare";st.rerun()
@@ -812,7 +808,7 @@ def main():
     tariff=r.get("tariff") or {}
     if r.get("public_fee"):
         st.write("공공 요금표: "+r["public_fee"])
-        st.caption(r.get("fee_note",""))
+        st.warning("참고요금 · 할인·무료시간·일일상한 미반영")
         if r.get("public_note"): st.caption("특기사항: "+r["public_note"])
         st.caption("데이터 기준일: "+str(r.get("verified_on", "미제공")))
     if tariff.get("complete"):
