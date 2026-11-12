@@ -509,7 +509,11 @@ def main():
     .st-key-criteria_tiles button p{font-size:clamp(.8rem,3.3vw,1.05rem)!important;word-break:keep-all;line-height:1.4}
 
     </style>""",unsafe_allow_html=True)
-    st.title("🅿️ 목적지 근처 주차장")
+    def go_search_home():
+        st.session_state["screen"]="search"
+    st.markdown('<style>.st-key-home_title button{background:transparent!important;border:0!important;padding:0!important;text-align:left!important;box-shadow:none!important;}.st-key-home_title button p{font-size:clamp(1.3rem,5.5vw,1.9rem)!important;font-weight:750!important;line-height:1.5!important;color:var(--text-color)!important;}</style>',unsafe_allow_html=True)
+    with st.container(key="home_title"):
+        st.button("🅿️ 목적지 근처 주차장",key="home_title_button",on_click=go_search_home,help="검색 화면으로 돌아가기")
     key=str(secret("KAKAO_REST_API_KEY", "")).strip()
     ss=st.session_state
     # 위치는 동의 후에만 요청하며 세션 메모리에만 보관합니다.
