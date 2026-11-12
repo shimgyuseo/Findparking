@@ -547,21 +547,12 @@ def main():
     ss.setdefault("screen", "search")
     screen=ss["screen"]
     if screen=="search":
-        ss.setdefault("data_mode_menu","실제 장소" if key else "가상 시연")
-        mode_columns=st.columns(2,gap="small")
-        for column,label in zip(mode_columns,["실제 장소","가상 시연"]):
-            with column:
-                if st.button(label,key="mode_button_"+label,use_container_width=True,
-                             type="primary" if ss["data_mode_menu"]==label else "secondary"):
-                    ss["data_mode_menu"]=label
-                    st.rerun()
-        mode=ss["data_mode_menu"]
-        demo=mode=="가상 시연"
+        demo=False
+        mode="실제 장소"
         if ss.get("mobile_mode")!=mode:
             ss["mobile_mode"]=mode
             ss.pop("mobile_results",None)
             ss.pop("mobile_destination",None)
-        if demo: st.caption("가상 데이터 · 실제 시설·요금 정보가 아닙니다.")
         # 안내 동의는 이 브라우저의 현재 Streamlit 세션에서 한 번만 받습니다.
         if not ss.get("mic_notice_accepted",False):
             if st.button("🎤 말로 장소 입력",use_container_width=True):
