@@ -472,6 +472,29 @@ def driving_route(api_key, origin_lat, origin_lon, lat, lon):
     summary=routes[0]["summary"]
     return int(summary["distance"]),int(summary["duration"])
 
+def typo_candidates(query, learned=()):
+    """제한된 장소명 목록에서만 후보 제안. 임의 장소 생성/자동 확정 금지."""
+    import unicodedata
+    from difflib import SequenceMatcher
+    known=["성심당","대둔산양촌한우타운","논산댁네","금암광장","계룡산","동학사","갑사","국립중앙박물관","국립세종수목원","대전오월드","한밭수목원","엑스포과학공원","대전신세계","롯데월드","에버랜드","경복궁","서울숲","북촌한옥마을","전주한옥마을","순천만국가정원","해운대해수욕장","광안리해수욕장","불국사","첨성대","독립기념관","현충사","공산성","부여정림사지"]
+    def normalized(t):
+        return unicodedata.normalize("NFD","".join(str(t).lower().split()))
+    words=query.strip().split()
+    variants=[(query.strip(),"")]
+    if len(words)>1:
+        variants.append((words[-1]," ".join(words[:-1])+" "))
+    scored={}
+    for name in dict.fromkeys(known+list(learned)):
+        for text,prefix in variants:
+            a,b=normalized(text),normalized(name)
+            if not a or a==b or abs(len(a)-len(b))>6: continue
+            score=SequenceMatcher(None,a,b).ratio()
+            if score>=.76:
+                candidate=prefix+name
+                scored[candidate]=max(score,scored.get(candidate,0))
+    return sorted(scored,key=lambda k:(-scored[k],k))[:3]
+
+
 def main():
     st.set_page_config(page_title="목적지 근처 주차장", page_icon="🅿️", layout="centered")
     # 첫 접속 세션에만 약 3초 표시. 검색/화면 이동 시 재생하지 않습니다.
@@ -580,11 +603,30 @@ def main():
                 spoken=speech_to_text(language="ko-KR",start_prompt="🎤 말로 장소 입력",stop_prompt="⏹ 입력 마치기",just_once=True,use_container_width=True,key="parking_voice_search")
                 if isinstance(spoken,str) and spoken.strip():
                     ss["mobile_query"]=spoken.strip()[:100]
+        # 검색 기록은 사용자별 Streamlit 세션 메모리에만 보관합니다.
+        ss.setdefault("recent_searches",[])
+        def restore_recent(text):
+            ss["mobile_query"]=text
+            ss["recent_search_pending"]=True
+            ss.pop("mobile_destination",None)
+        if ss["recent_searches"]:
+            with st.expander("🕘 최근 검색"):
+                for index,text in enumerate(ss["recent_searches"]):
+                    st.button(text,key="recent_search_"+str(index),use_container_width=True,
+                              on_click=restore_recent,args=(text,))
+                if st.button("기록 전체 삭제",key="clear_recent_searches"):
+                    ss["recent_searches"]=[]
+                    st.rerun()
         with st.form("mobile_search"):
             query=st.text_input("어디로 가세요?",placeholder="장소명 또는 지역 + 장소명",max_chars=100,key="mobile_query")
             submit=st.form_submit_button("장소 검색",type="primary",use_container_width=True)
-        if submit:
+        if submit or ss.pop("recent_search_pending",False):
+            if query.strip() and key:
+                term=query.strip()
+                ss["recent_searches"]=[term]+[t for t in ss["recent_searches"] if t!=term]
+                ss["recent_searches"]=ss["recent_searches"][:5]
             ss.pop("mobile_destination",None)
+            ss["typo_suggestions"]=[]
             if demo:
                 ds,_=demo_data()
                 q=query.strip().lower()
@@ -596,9 +638,33 @@ def main():
                 try:
                     docs,_=kakao_search(key,"keyword",{"query":query.strip(),"size":15})
                     ss["mobile_results"]=[place(d) for d in docs]
+                    learned=ss.setdefault("known_place_names",[])
+                    learned.extend(d["place_name"] for d in docs if d.get("place_name"))
+                    ss["known_place_names"]=list(dict.fromkeys(learned))[-200:]
+                    if not docs:
+                        for candidate in typo_candidates(query,ss["known_place_names"]):
+                            try:
+                                verified,_=kakao_search(key,"keyword",{"query":candidate,"size":15})
+                            except (requests.RequestException,ValueError,KeyError):
+                                continue
+                            if verified:
+                                ss["typo_suggestions"].append((candidate,[place(d) for d in verified]))
+                            if len(ss["typo_suggestions"])>=2: break
+
                 except (requests.RequestException,ValueError,KeyError):
                     ss["mobile_results"]=[]
                     st.error("검색 연결에 실패했습니다. 키와 API 권한을 확인해 주세요.")
+        if not ss.get("mobile_results") and ss.get("typo_suggestions"):
+            st.info("혹시 이 검색어를 찾으셨나요?")
+            def accept_correction(text,found):
+                ss["recent_searches"]=([text]+[t for t in ss.get("recent_searches",[]) if t!=text])[:5]
+                ss["mobile_query"]=text
+                ss["mobile_results"]=found
+                ss["typo_suggestions"]=[]
+                ss.pop("mobile_destination",None)
+            for i,(candidate,found) in enumerate(ss["typo_suggestions"]):
+                st.button("🔎 "+candidate+" 검색",key="typo_pick_"+str(i),
+                          use_container_width=True,on_click=accept_correction,args=(candidate,found))
         results=ss.get("mobile_results",[])
         if demo and "mobile_results" not in ss: results=demo_data()[0]
         if results:
