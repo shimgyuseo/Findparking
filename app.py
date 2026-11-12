@@ -759,17 +759,17 @@ def main():
     st.caption(r["address"])
     st.caption("가상 직선거리" if demo else f"현재 위치에서 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
     import pydeck as pdk
-    markers=[{"lat":dest["lat"],"lon":dest["lon"],"label":"📍 목적지", "color":[23,107,85]},
-             {"lat":r["lat"],"lon":r["lon"],"label":"🅿 주차장", "color":[232,116,57]}]
+    markers=[{"lat":dest["lat"],"lon":dest["lon"],"label":"목적지", "color":[23,107,85]},
+             {"lat":r["lat"],"lon":r["lon"],"label":"주차장", "color":[232,116,57]}]
     if not demo and ss.get("user_location"):
-        markers.append(dict(ss["user_location"],label="⚑ 출발",color=[40,90,190]))
+        markers.append(dict(ss["user_location"],label="출발",color=[40,90,190]))
     points=pd.DataFrame(markers)
     from pydeck.data_utils import compute_view
     view=compute_view(points[["lon","lat"]].values.tolist())
     view.zoom=min(view.zoom,16)
     st.pydeck_chart(pdk.Deck(initial_view_state=view,layers=[
         pdk.Layer("ScatterplotLayer",data=points,get_position="[lon, lat]",get_fill_color="color",get_radius=12,radius_min_pixels=7,pickable=True),
-        pdk.Layer("TextLayer",data=points,get_position="[lon, lat]",get_text="label",get_color="color",get_size=18,get_pixel_offset=[0,-25],get_text_anchor="middle",get_alignment_baseline="bottom",character_set="auto")
+        pdk.Layer("TextLayer",data=points,get_position="[lon, lat]",get_text="label",get_color="color",get_size=18,get_pixel_offset=[0,-25],get_text_anchor="middle",get_alignment_baseline="bottom",get_background_color=[255,255,255,235],background=True,font_family="Arial, sans-serif",character_set=list("목적지주차장출발 "))
     ],tooltip={"text":"{label}"},map_style="light",height=260),use_container_width=True)
     if not demo:
         url=f"https://map.kakao.com/link/to/{quote(r['name'],safe='')},{r['lat']},{r['lon']}"
