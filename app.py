@@ -547,9 +547,15 @@ def main():
     ss.setdefault("screen", "search")
     screen=ss["screen"]
     if screen=="search":
-        # 모바일 좌측 상단의 접힌 메뉴에서 데이터 모드 선택.
-        with st.popover("☰ 모드",use_container_width=False):
-            mode=st.radio("검색 모드",["실제 장소", "가상 시연"],index=0 if key else 1,key="data_mode_menu")
+        ss.setdefault("data_mode_menu","실제 장소" if key else "가상 시연")
+        mode_columns=st.columns(2,gap="small")
+        for column,label in zip(mode_columns,["실제 장소","가상 시연"]):
+            with column:
+                if st.button(label,key="mode_button_"+label,use_container_width=True,
+                             type="primary" if ss["data_mode_menu"]==label else "secondary"):
+                    ss["data_mode_menu"]=label
+                    st.rerun()
+        mode=ss["data_mode_menu"]
         demo=mode=="가상 시연"
         if ss.get("mobile_mode")!=mode:
             ss["mobile_mode"]=mode
@@ -714,64 +720,30 @@ def main():
         summary={"요금 우선":"낮은 요금순 · 동률이면 가까운 곳", "거리 우선":"가까운 순 · 요금 미확인 포함", "요금·거리 균형":"요금 50% + 거리 50% 균형"}[criterion]
         st.caption(summary)
         st.caption(f"{start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
-        view=st.radio("결과 종류",["추천 3곳","할인 혜택","전체 후보"],horizontal=True,label_visibility="collapsed",key="result_view")
-        if view=="추천 3곳":
-            ranked=rank_lots(rows,criterion)[:3]
-            fallback = not ranked
-            if fallback:
-                # 운영 미확인을 영업 중으로 간주하지 않고 위치 검색 결과로 별도 제공.
-                ranked=sorted((r for r in rows if r["status"]!="closed"),key=lambda r:r["distance"])[:3]
-                if ranked: st.caption("근처 검색 결과 · 운영시간·요금 미제공으로 가까운 순 표시 (영업 여부 미확인)")
-            for n,r in enumerate(ranked,1):
-                price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 미확인"
-                kind=affiliation(r,dest["id"])
-                with st.container(border=True):
-                    st.markdown(f"**{n}. {r['name']}**"+(f" · {kind}" if kind else ""))
-                    st.write(f"{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m")
-                    if not demo:
-                        st.caption(f"자동차 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
-                    if "public_estimate" in r and r.get("cost") is not None:
-                        st.caption("2시간 참고요금 · 상한·할인 등 미반영")
-                    discount=(r.get("tariff") or {}).get("discount")
-                    if isinstance(discount,dict):
-                        discounted,_=estimate_fee(r.get("tariff"),start,end,True)
-                        if discounted is not None:
-                            st.caption(f"🎁 조건 충족 시 {discounted:,}원 · 할인 혜택에서 확인")
-                    if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
-                        ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
-            if not ranked: st.info("현재 조건의 후보가 없습니다. 전체 후보를 확인하거나 다른 장소를 검색하세요.")
-        elif view=="할인 혜택":
-            offers=[]
-            for r in rows:
+        ranked=rank_lots(rows,criterion)[:3]
+        fallback = not ranked
+        if fallback:
+            # 운영 미확인을 영업 중으로 간주하지 않고 위치 검색 결과로 별도 제공.
+            ranked=sorted((r for r in rows if r["status"]!="closed"),key=lambda r:r["distance"])[:3]
+            if ranked: st.caption("근처 검색 결과 · 운영시간·요금 미제공으로 가까운 순 표시 (영업 여부 미확인)")
+        for n,r in enumerate(ranked,1):
+            price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 미확인"
+            kind=affiliation(r,dest["id"])
+            with st.container(border=True):
+                st.markdown(f"**{n}. {r['name']}**"+(f" · {kind}" if kind else ""))
+                st.write(f"{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m")
+                if not demo:
+                    st.caption(f"자동차 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
+                if "public_estimate" in r and r.get("cost") is not None:
+                    st.caption("2시간 참고요금 · 상한·할인 등 미반영")
                 discount=(r.get("tariff") or {}).get("discount")
-                if r["status"]!="open" or not isinstance(discount,dict): continue
-                regular,_=estimate_fee(r.get("tariff"),start,end,False)
-                reduced,_=estimate_fee(r.get("tariff"),start,end,True)
-                if regular is not None and reduced is not None and regular>reduced:
-                    offers.append((regular-reduced,reduced,r["distance"],r,discount,regular))
-            offers.sort(key=lambda x:(-x[0],x[1],x[2],str(x[3]["id"])))
-            st.caption("절약액이 큰 순 · 조건 충족 시 예상금액 · 최대 3곳")
-            for savings,reduced,dist,r,discount,regular in offers[:3]:
-                with st.container(border=True):
-                    st.markdown("**🎁 "+r["name"]+"**")
-                    st.write(f"{regular:,}원 → {reduced:,}원 · {savings:,}원 절약")
-                    st.caption(str(discount.get("label","할인 조건 확인 필요")))
-                    checked=st.checkbox("이 할인 조건을 충족해요",value=r["id"] in picked,key="offer_apply_"+str(r["id"])+str(r["id"] in picked))
-                    if checked != (r["id"] in picked):
-                        ss["mobile_discounts"]=list((set(picked)|{r["id"]}) if checked else (set(picked)-{r["id"]}));st.rerun()
-                    if st.button("지도·상세 →",key="offer_detail_"+str(r["id"]),use_container_width=True):
-                        ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
-            if not offers: st.info("현재 이용시간에 확인 가능한 할인 혜택이 없습니다.")
-        else:
-            choices={r["id"]:r for r in rows}
-            if choices:
-                candidate=st.selectbox("전체 주차장 · 전용/제휴 포함",list(choices),format_func=lambda i:choices[i]["name"]+(" · "+affiliation(choices[i],dest["id"]) if affiliation(choices[i],dest["id"]) else ""))
-                r=choices[candidate]
-                st.caption(r["address"])
-                st.write(f"{'가상 직선' if demo else '자동차'} {r['distance']:,}m · "+{"open":"시간표상 운영","closed":"운영시간 밖 · 추천 제외","unknown":"운영 확인 필요 · 추천 제외"}[r["status"]])
-                if st.button("지도·상세 →",key="all_detail",use_container_width=True):
-                    ss["selected_lot"]=candidate;ss["screen"]="detail";st.rerun()
-            else: st.info("주변 검색 결과가 없습니다.")
+                if isinstance(discount,dict):
+                    discounted,_=estimate_fee(r.get("tariff"),start,end,True)
+                    if discounted is not None:
+                        st.caption(f"🎁 조건 충족 시 {discounted:,}원 · {discount.get('label','조건 확인 필요')}")
+                if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
+                    ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
+        if not ranked: st.info("현재 조건의 후보가 없습니다. 다른 장소를 검색해 주세요.")
         return
     if st.button("← 비교 결과",key="back_compare"):
         ss["screen"]="compare";st.rerun()
