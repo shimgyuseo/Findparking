@@ -707,14 +707,18 @@ def main():
         routed=[]
         failed=0
         slow_notice=st.empty()
-        slow_notice.markdown(
-            '<style>@keyframes parkingSlowNotice{to{visibility:visible;}}'
-            '.parking-slow-notice{visibility:hidden;animation:parkingSlowNotice 0s 12s forwards;'
-            'font-size:15px;line-height:1.6;margin:8px 0;}'
-            '.parking-slow-notice a{color:#1769e0!important;font-weight:700;text-decoration:underline;}</style>'
-            '<div class="parking-slow-notice" role="status">로딩이 길어지고 있어요. 새로고침 후 다시 시도해 주세요. '
-            '<a href="?parking_refresh=1" target="_self">눌러서 새로고침</a></div>',
-            unsafe_allow_html=True)
+        with slow_notice.container():
+            st.markdown(
+                '<style>@keyframes parkingRetryReveal{to{visibility:visible;}}'
+                '.st-key-route_retry{visibility:hidden;animation:parkingRetryReveal 0s 12s forwards;}'
+                '.st-key-route_retry button{background:transparent!important;border:0!important;'
+                'color:#1769e0!important;text-decoration:underline;min-height:44px!important;}'
+                '</style>',unsafe_allow_html=True)
+            with st.container(key="route_retry"):
+                st.caption("로딩이 길어지고 있어요. 현재 화면에서 다시 시도할 수 있습니다.")
+                if st.button("눌러서 새로고침",key="retry_current_route"):
+                    # 브라우저 재접속 없이 세션의 화면·목적지·위치를 유지합니다.
+                    st.rerun()
         with st.spinner("자동차 경로를 확인하고 있어요…"):
             for r in sorted(rows,key=lambda r:r["distance"])[:15]:
                 try:
