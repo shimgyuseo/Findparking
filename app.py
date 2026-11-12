@@ -411,7 +411,7 @@ def show_lot(r, destination_id, demo, compact=False):
     relation = kind if kind else ("전용·제휴 아님 (가상 설정)" if demo else "전용·제휴 관계 확인 필요")
     price = f"{r['cost']:,}원 예상" if r["cost"] is not None else "예상요금 확인 필요"
     st.markdown(f"**{r['name']}**")
-    st.write(f"{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m · {relation}")
+    st.write(f"{price} · {'가상 직선' if demo else '거리'} {r['distance']:,}m · {relation}")
     st.caption(r["address"])
     if not compact:
         st.write(f"운영시간: {r['hours_label']}")
@@ -716,7 +716,7 @@ def main():
                         st.rerun()
         criterion=ss["mobile_criterion"]
         st.caption("2시간 주차 · 목적지 반경 1km 검색")
-        st.caption("가상 직선거리" if demo else "현재 위치 → 주차장 · 자동차 경로 · 예상시간은 교통 상황에 따라 변동")
+        st.caption("가상 직선거리" if demo else "현재 위치 → 주차장 · 교통 상황에 따라 시간 변동")
         summary={"요금 우선":"낮은 요금순 · 동률이면 가까운 곳", "거리 우선":"가까운 순 · 요금 미확인 포함", "요금·거리 균형":"요금 50% + 거리 50% 균형"}[criterion]
         st.caption(summary)
         st.caption(f"{start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
@@ -731,9 +731,9 @@ def main():
             kind=affiliation(r,dest["id"])
             with st.container(border=True):
                 st.markdown(f"**{n}. {r['name']}**"+(f" · {kind}" if kind else ""))
-                st.write(f"{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m")
+                st.write(f"{price} · {'가상 직선' if demo else '거리'} {r['distance']:,}m")
                 if not demo:
-                    st.caption(f"자동차 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
+                    st.caption(f"약 {math.ceil(r.get('drive_seconds',0)/60)}분")
                 if "public_estimate" in r and r.get("cost") is not None:
                     st.caption("2시간 참고요금 · 상한·할인 등 미반영")
                 discount=(r.get("tariff") or {}).get("discount")
@@ -755,10 +755,22 @@ def main():
     selected_id=st.selectbox("주차장",options,index=options.index(initial) if initial in options else 0,format_func=lambda i:choices[i]["name"]+(" · "+affiliation(choices[i],dest["id"]) if affiliation(choices[i],dest["id"]) else ""))
     r=choices[selected_id]
     price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 확인 필요"
-    st.write(f"**{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m**")
+    st.write(f"**{price} · {'가상 직선' if demo else '거리'} {r['distance']:,}m**")
     st.caption(r["address"])
-    st.caption("가상 직선거리" if demo else f"현재 위치 기준 자동차 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
-    st.map(pd.DataFrame([{"lat":dest["lat"],"lon":dest["lon"],"color":"#176B55","size":18},{"lat":r["lat"],"lon":r["lon"],"color":"#E87439","size":24}]),latitude="lat",longitude="lon",color="color",size="size",height=200)
+    st.caption("가상 직선거리" if demo else f"현재 위치에서 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
+    import pydeck as pdk
+    markers=[{"lat":dest["lat"],"lon":dest["lon"],"label":"📍 목적지", "color":[23,107,85]},
+             {"lat":r["lat"],"lon":r["lon"],"label":"🅿 주차장", "color":[232,116,57]}]
+    if not demo and ss.get("user_location"):
+        markers.append(dict(ss["user_location"],label="⚑ 출발",color=[40,90,190]))
+    points=pd.DataFrame(markers)
+    from pydeck.data_utils import compute_view
+    view=compute_view(points[["lon","lat"]].values.tolist())
+    view.zoom=min(view.zoom,16)
+    st.pydeck_chart(pdk.Deck(initial_view_state=view,layers=[
+        pdk.Layer("ScatterplotLayer",data=points,get_position="[lon, lat]",get_fill_color="color",get_radius=12,radius_min_pixels=7,pickable=True),
+        pdk.Layer("TextLayer",data=points,get_position="[lon, lat]",get_text="label",get_color="color",get_size=18,get_pixel_offset=[0,-25],get_text_anchor="middle",get_alignment_baseline="bottom",character_set="auto")
+    ],tooltip={"text":"{label}"},map_style="light",height=260),use_container_width=True)
     if not demo:
         url=f"https://map.kakao.com/link/to/{quote(r['name'],safe='')},{r['lat']},{r['lon']}"
         st.link_button("카카오맵 길찾기",url,type="primary",use_container_width=True)
@@ -780,14 +792,12 @@ def main():
     elif not r.get("public_fee"): missing.append("요금")
     discount=tariff.get("discount")
     if isinstance(discount,dict):
-        checked=st.checkbox(str(discount.get("label","방문객 할인 조건 충족")),value=r["id"] in picked,key="apply_discount_"+str(r["id"])+str(r["id"] in picked))
-        if checked != (r["id"] in picked):
-            ss["mobile_discounts"]=list((set(picked)|{r["id"]}) if checked else (set(picked)-{r["id"]}));st.rerun()
+        st.info("🎁 "+str(discount.get("label","방문객 할인 조건 확인 필요")))
     kind=affiliation(r,dest["id"])
     if kind: st.caption("목적지와의 관계: "+str(kind))
     if missing: st.caption(" · ".join(missing)+" 정보 미제공")
     if https_url(r.get("source_url","")): st.link_button("공식 정보",r["source_url"])
-    st.caption("초록: 목적지 · 주황: 주차장 / 실시간 잔여 자리 확인 불가")
+    st.caption("실시간 잔여 자리 확인 불가")
 
 
 if __name__ == "__main__":
