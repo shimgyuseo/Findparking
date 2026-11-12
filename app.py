@@ -754,9 +754,17 @@ def main():
         ranked=rank_lots(rows,criterion)[:3]
         fallback = not ranked
         if fallback:
-            # 운영 미확인을 영업 중으로 간주하지 않고 위치 검색 결과로 별도 제공.
-            ranked=sorted((r for r in rows if r["status"]!="closed"),key=lambda r:r["distance"])[:3]
-            if ranked: st.warning("가까운 순 표시 · 운영 여부 미확인")
+            # 운영 여부 미확인 후보도 선택 기준대로 비교하되 영업 중으로 표시하지 않습니다.
+            candidates=[dict(r,status="open",actual_status=r["status"]) for r in rows if r["status"]!="closed"]
+            ranked=rank_lots(candidates,criterion)[:3]
+            if ranked:
+                st.warning("운영 여부 미확인 · 선택 기준으로 정렬한 검색 결과입니다.")
+            elif candidates:
+                st.warning("비교할 요금 정보가 없어 가까운 순으로 표시합니다.")
+                ranked=sorted(candidates,key=lambda r:r["distance"])[:3]
+            for r in ranked:
+                r["status"]=r.pop("actual_status", "unknown")
+        st.caption({"요금 우선":"요금이 낮은 순 · 동률이면 가까운 순", "거리 우선":"현재 위치에서 가까운 순", "요금·거리 균형":"요금 50% + 거리 50%로 비교"}[criterion])
         for n,r in enumerate(ranked,1):
             price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 미확인"
             kind=affiliation(r,dest["id"])
