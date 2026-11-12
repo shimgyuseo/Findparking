@@ -547,23 +547,15 @@ def main():
     ss.setdefault("screen", "search")
     screen=ss["screen"]
     if screen=="search":
-        mode=st.radio("데이터",["실제 장소", "가상 시연"],index=0 if key else 1,horizontal=True)
+        # 모바일 좌측 상단의 접힌 메뉴에서 데이터 모드 선택.
+        with st.popover("☰ 모드",use_container_width=False):
+            mode=st.radio("검색 모드",["실제 장소", "가상 시연"],index=0 if key else 1,key="data_mode_menu")
         demo=mode=="가상 시연"
         if ss.get("mobile_mode")!=mode:
             ss["mobile_mode"]=mode
             ss.pop("mobile_results",None)
             ss.pop("mobile_destination",None)
         if demo: st.caption("가상 데이터 · 실제 시설·요금 정보가 아닙니다.")
-        if not demo:
-            with st.expander("전국 공공 주차요금 데이터 설정"):
-                st.caption("공공데이터포털 ‘전국주차장정보표준데이터’ 전체 CSV를 올리면 해당 세션에서 사용합니다. 또는 Secrets의 PARKING_CSV_URL에 CSV 직접 다운로드 주소를 등록하세요.")
-                uploaded=st.file_uploader("전국 주차장 CSV",type=["csv"])
-                if uploaded is not None:
-                    try:
-                        ss["public_parking"]=public_parking(uploaded.getvalue())
-                        st.success(f"{len(ss['public_parking']):,}곳 불러옴")
-                    except (ValueError,KeyError): st.error("CSV 형식이나 인코딩을 확인해 주세요.")
-
         # 안내 동의는 이 브라우저의 현재 Streamlit 세션에서 한 번만 받습니다.
         if not ss.get("mic_notice_accepted",False):
             if st.button("🎤 말로 장소 입력",use_container_width=True):
