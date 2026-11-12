@@ -686,6 +686,15 @@ def main():
         route_key=str(secret("KAKAO_MOBILITY_REST_API_KEY",key)).strip()
         routed=[]
         failed=0
+        slow_notice=st.empty()
+        slow_notice.markdown(
+            '<style>@keyframes parkingSlowNotice{to{visibility:visible;}}'
+            '.parking-slow-notice{visibility:hidden;animation:parkingSlowNotice 0s 12s forwards;'
+            'font-size:15px;line-height:1.6;margin:8px 0;}'
+            '.parking-slow-notice a{color:#1769e0!important;font-weight:700;text-decoration:underline;}</style>'
+            '<div class="parking-slow-notice" role="status">로딩이 길어지고 있어요. 새로고침 후 다시 시도해 주세요. '
+            '<a href="?parking_refresh=1" target="_self">눌러서 새로고침</a></div>',
+            unsafe_allow_html=True)
         with st.spinner("자동차 경로를 확인하고 있어요…"):
             for r in sorted(rows,key=lambda r:r["distance"])[:15]:
                 try:
@@ -695,6 +704,7 @@ def main():
                         r["fee_note"]="기본·추가요금으로 계산한 2시간 참고금액. 일일상한·무료시간·할인·특기사항은 미반영."
                     routed.append(r)
                 except (requests.RequestException,ValueError,KeyError): failed+=1
+        slow_notice.empty()
         rows=routed
         if failed: st.caption(f"자동차 경로를 확인하지 못한 {failed}곳 제외 · 직선거리로 대체하지 않음")
         if not rows:
@@ -771,6 +781,7 @@ def main():
         pdk.Layer("ScatterplotLayer",data=points,get_position="[lon, lat]",get_fill_color="color",get_radius=12,radius_min_pixels=7,pickable=True),
         pdk.Layer("TextLayer",data=points,get_position="[lon, lat]",get_text="label",get_color="color",get_size=18,get_pixel_offset=[0,-25],get_text_anchor="middle",get_alignment_baseline="bottom",get_background_color=[255,255,255,235],background=True,font_family="Arial, sans-serif",character_set=list("목적지주차장출발 "))
     ],tooltip={"text":"{label}"},map_style="light",height=260),use_container_width=True)
+    st.caption("🟢 목적지 · 🟠 주차장" + (" · 🔵 현재 위치(출발)" if not demo and ss.get("user_location") else ""))
     if not demo:
         url=f"https://map.kakao.com/link/to/{quote(r['name'],safe='')},{r['lat']},{r['lon']}"
         st.link_button("카카오맵 길찾기",url,type="primary",use_container_width=True)
