@@ -595,11 +595,16 @@ def main():
         criterion=ss["mobile_criterion"]
         st.caption("2시간 주차 · 반경 1km · 직선거리")
         summary={"요금 우선":"낮은 요금순 · 동률이면 가까운 곳", "거리 우선":"가까운 순 · 요금 미확인 포함", "요금·거리 균형":"요금 50% + 거리 50% 균형"}[criterion]
-        st.caption(summary+" · 운영 확인된 곳만 추천")
+        st.caption(summary)
         st.caption(f"{start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
         view=st.radio("결과 종류",["추천 3곳","할인 혜택","전체 후보"],horizontal=True,label_visibility="collapsed",key="result_view")
         if view=="추천 3곳":
             ranked=rank_lots(rows,criterion)[:3]
+            fallback = not ranked
+            if fallback:
+                # 운영 미확인을 영업 중으로 간주하지 않고 위치 검색 결과로 별도 제공.
+                ranked=sorted((r for r in rows if r["status"]!="closed"),key=lambda r:r["distance"])[:3]
+                if ranked: st.caption("근처 검색 결과 · 운영시간·요금 미제공으로 가까운 순 표시 (이용 가능 보장 아님)")
             for n,r in enumerate(ranked,1):
                 price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 미확인"
                 kind=affiliation(r,dest["id"])
@@ -613,7 +618,7 @@ def main():
                             st.caption(f"🎁 조건 충족 시 {discounted:,}원 · 할인 혜택에서 확인")
                     if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
                         ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
-            if not ranked: st.info("운영·요금이 확인된 추천 후보가 없습니다. 전체 후보에서 위치를 볼 수 있습니다.")
+            if not ranked: st.info("현재 조건의 후보가 없습니다. 전체 후보를 확인하거나 다른 장소를 검색하세요.")
         elif view=="할인 혜택":
             offers=[]
             for r in rows:
@@ -664,19 +669,25 @@ def main():
         url=f"https://map.kakao.com/link/to/{quote(r['name'],safe='')},{r['lat']},{r['lon']}"
         st.link_button("카카오맵 길찾기",url,type="primary",use_container_width=True)
     else: st.caption("가상 위치 · 길찾기는 실제 모드에서 제공")
-    with st.expander("운영시간·요금·방문객 할인"):
+    # 확인된 정보만 펼침 없이 표시. 정보 미제공은 한 번만 안내.
+    missing=[]
+    if r.get("hours_label") and "확인 필요" not in r["hours_label"]:
         st.write("운영시간: "+r["hours_label"])
-        st.write("이용 구간: "+{"open":"시간표상 운영","closed":"운영시간 밖","unknown":"확인 필요"}[r["status"]])
-        st.write(tariff_text(r.get("tariff")))
-        discount=(r.get("tariff") or {}).get("discount")
-        if isinstance(discount,dict):
-            checked=st.checkbox(str(discount.get("label","방문객 할인 조건 충족")),value=r["id"] in picked,key="apply_discount_"+str(r["id"])+str(r["id"] in picked))
-            if checked != (r["id"] in picked):
-                ss["mobile_discounts"]=list((set(picked)|{r["id"]}) if checked else (set(picked)-{r["id"]}));st.rerun()
-        else: st.caption("방문객 할인: 확인 필요" if not (r.get("tariff") or {}).get("complete") else "등록된 할인 없음")
-        st.caption(r["fee_note"])
-        st.caption("전용·제휴: "+str(affiliation(r,dest["id"]) or ("없음 (가상 설정)" if demo else "확인 필요")))
-        if https_url(r.get("source_url","")): st.link_button("요금·운영 정보 출처",r["source_url"])
+    else: missing.append("운영시간")
+    if r["status"]=="closed": st.warning("선택한 이용시간은 운영시간 밖입니다.")
+    tariff=r.get("tariff") or {}
+    if tariff.get("complete"):
+        st.write(tariff_text(tariff))
+    else: missing.append("요금")
+    discount=tariff.get("discount")
+    if isinstance(discount,dict):
+        checked=st.checkbox(str(discount.get("label","방문객 할인 조건 충족")),value=r["id"] in picked,key="apply_discount_"+str(r["id"])+str(r["id"] in picked))
+        if checked != (r["id"] in picked):
+            ss["mobile_discounts"]=list((set(picked)|{r["id"]}) if checked else (set(picked)-{r["id"]}));st.rerun()
+    kind=affiliation(r,dest["id"])
+    if kind: st.caption("목적지와의 관계: "+str(kind))
+    if missing: st.caption(" · ".join(missing)+" 정보 미제공")
+    if https_url(r.get("source_url","")): st.link_button("공식 정보",r["source_url"])
     st.caption("초록: 목적지 · 주황: 주차장 / 실시간 잔여 자리 확인 불가")
 
 
