@@ -523,9 +523,12 @@ def main():
                     st.rerun()
             else:
                 try:
-                    from streamlit_geolocation import streamlit_geolocation
-                    st.caption("아래 위치 아이콘을 누르고, 브라우저에서 ‘허용’을 선택하세요.")
-                    location=streamlit_geolocation()
+                    from streamlit_js_eval import get_geolocation
+                    st.caption("브라우저의 위치 요청에서 ‘허용’을 선택해 주세요.")
+                    # 브라우저 권한 요청은 기존 위치 구성요소가 직접 수행합니다.
+                    location=get_geolocation(component_key="parking_location_request")
+                    if location and isinstance(location.get("coords"),dict):
+                        location=location["coords"]
                     if location and location.get("latitude") is not None and location.get("longitude") is not None:
                         lat,lon=float(location["latitude"]),float(location["longitude"])
                         if not (-90<=lat<=90 and -180<=lon<=180):
