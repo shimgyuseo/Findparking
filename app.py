@@ -474,7 +474,7 @@ def driving_route(api_key, origin_lat, origin_lon, lat, lon):
 
 def main():
     st.set_page_config(page_title="목적지 근처 주차장", page_icon="🅿️", layout="centered")
-    # 첫 접속 세션에만 약 5초 표시. 검색/화면 이동 시 재생하지 않습니다.
+    # 첫 접속 세션에만 약 3초 표시. 검색/화면 이동 시 재생하지 않습니다.
     if not st.session_state.get("intro_seen",False):
         splash=st.empty()
         # HTML을 한 줄로 전달해 들여쓰기가 코드 블록으로 해석되지 않게 합니다.
@@ -489,7 +489,7 @@ def main():
             '<div class="parking-intro-title">근처 주차장 찾기</div></div>'
         )
         splash.markdown(splash_html,unsafe_allow_html=True)
-        clock.sleep(5)
+        clock.sleep(3)
         st.session_state["intro_seen"]=True
         splash.empty()
 
@@ -662,12 +662,38 @@ def main():
     lots=ss["mobile_lots"]
     if not demo:
         csv_url=str(secret("PARKING_CSV_URL","")).strip()
-        if csv_url and "public_parking" not in ss:
+        if "public_parking" not in ss:
             try:
-                data_response=requests.get(csv_url,timeout=40)
-                data_response.raise_for_status()
-                ss["public_parking"]=public_parking(data_response.content)
-            except (requests.RequestException,ValueError): st.warning("공공 요금 데이터를 불러오지 못했습니다.")
+                # 저장소의 app.py 옆 CSV가 있으면 외부 다운로드 없이 사용합니다.
+                from pathlib import Path
+                folder=Path(__file__).resolve().parent
+                local=folder/"parking.csv"
+                candidates=[local] if local.exists() else sorted(folder.glob("*.csv"))
+                if candidates:
+                    raw=candidates[0].read_bytes()
+                elif csv_url:
+                    from urllib.parse import urlsplit, urlunsplit
+                    parts=urlsplit(csv_url)
+                    if parts.hostname=="github.com" and "/blob/" in parts.path:
+                        csv_url=urlunsplit(("https","raw.githubusercontent.com",parts.path.replace("/blob/","/",1),"",""))
+                    data_response=requests.get(csv_url,timeout=(5,30))
+                    data_response.raise_for_status()
+                    raw=data_response.content
+                    if raw.lstrip()[:50].lower().startswith((b"<!doctype html",b"<html")):
+                        raise ValueError("CSV 대신 웹페이지가 반환됐습니다. GitHub 원본 파일 주소를 확인하세요.")
+                else:
+                    raw=None
+                if raw is not None:
+                    parsed=public_parking(raw)
+                    if not parsed: raise ValueError("좌표가 있는 주차장 행을 찾지 못했습니다.")
+                    ss["public_parking"]=parsed
+            except requests.HTTPError as exc:
+                code=exc.response.status_code if exc.response is not None else "오류"
+                st.warning(f"공공 CSV 다운로드 실패(HTTP {code}). 저장소에 parking.csv를 올리면 주소 설정 없이 연결됩니다.")
+            except requests.RequestException:
+                st.warning("공공 CSV 연결이 지연되거나 차단됐습니다. 저장소에 parking.csv를 올려 주세요.")
+            except (ValueError,KeyError,OSError):
+                st.warning("공공 CSV의 형식·인코딩·필수 열을 확인하지 못했습니다. 원본 CSV를 첨부해 주시면 확인할 수 있습니다.")
         public=[r for r in ss.get("public_parking",[]) if distance_m(dest,r)<=radius]
         # 공식 데이터는 독립된 주차장으로 표시. 이름만으로 카카오 결과에 요금을 붙이지 않음.
         lots=public+[r for r in lots if not any(r["name"]==v["name"] and distance_m(r,v)<30 for v in public)]
