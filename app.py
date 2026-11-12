@@ -1,3 +1,8 @@
+# 추가 설정: 카카오모빌리티 길찾기 API 사용 등록 필요.
+# Secrets: KAKAO_MOBILITY_REST_API_KEY="키" (없으면 KAKAO_REST_API_KEY 사용)
+# PARKING_CSV_URL="전국주차장정보표준데이터 CSV 직접 다운로드 HTTPS 주소"
+# CSV 출처: https://www.data.go.kr/data/15012896/standard.do
+# 일일주차권은 일일최대요금과 다르므로 상한으로 간주하지 않습니다.
 # -*- coding: utf-8 -*-
 """
 목적지 근처 주차장 · Streamlit 단일 화면 앱
@@ -406,7 +411,7 @@ def show_lot(r, destination_id, demo, compact=False):
     relation = kind if kind else ("전용·제휴 아님 (가상 설정)" if demo else "전용·제휴 관계 확인 필요")
     price = f"{r['cost']:,}원 예상" if r["cost"] is not None else "예상요금 확인 필요"
     st.markdown(f"**{r['name']}**")
-    st.write(f"{price} · 직선 {r['distance']:,}m · {relation}")
+    st.write(f"{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m · {relation}")
     st.caption(r["address"])
     if not compact:
         st.write(f"운영시간: {r['hours_label']}")
@@ -424,6 +429,48 @@ def show_lot(r, destination_id, demo, compact=False):
             if r.get("url"):
                 st.link_button("카카오맵 장소 정보", r["url"])
 
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def public_parking(raw):
+    import io
+    frame=None
+    for enc in ("utf-8-sig","cp949"):
+        try:
+            frame=pd.read_csv(io.BytesIO(raw),encoding=enc,dtype=str).fillna("")
+            break
+        except UnicodeDecodeError: continue
+    if frame is None or not {"위도","경도","주차장명"}.issubset(frame.columns):
+        raise ValueError("전국주차장정보표준데이터 CSV가 필요합니다.")
+    result=[]
+    for idx,row in frame.iterrows():
+        try:
+            lat,lon=float(row["위도"]),float(row["경도"])
+            if not (33<=lat<=39 and 124<=lon<=132): continue
+        except (ValueError,TypeError): continue
+        info=str(row.get("요금정보",""))
+        label="무료" if info=="무료" else ""
+        fields=[row.get(k,"") for k in ("주차기본시간","주차기본요금","추가단위시간","추가단위요금")]
+        estimate=None
+        if info=="무료": estimate=0
+        elif all(str(v).strip() for v in fields):
+            try:
+                bt,bf,at,af=map(float,fields)
+                if bt>0 and at>0 and bf>=0 and af>=0:
+                    estimate=int(math.ceil(bf+math.ceil(max(0,120-bt)/at)*af))
+                    label=f"기본 {bt:g}분 {bf:g}원 · 추가 {at:g}분 {af:g}원"
+            except (ValueError,OverflowError): pass
+        result.append({"id":"public-"+str(row.get("주차장관리번호",idx)),"name":row["주차장명"],"address":row.get("소재지도로명주소","") or row.get("소재지지번주소",""),"lat":lat,"lon":lon,"public_fee":label,"public_estimate":estimate,"public_note":row.get("특기사항",""),"verified_on":row.get("데이터기준일자",""),"source_url":"https://www.data.go.kr/data/15012896/standard.do","affiliations":[]})
+    return result
+
+@st.cache_data(ttl=300, show_spinner=False)
+def driving_route(api_key, origin_lat, origin_lon, lat, lon):
+    response=requests.get("https://apis-navi.kakaomobility.com/v1/directions",headers={"Authorization":"KakaoAK "+api_key},params={"origin":f"{origin_lon},{origin_lat}","destination":f"{lon},{lat}","priority":"RECOMMEND"},timeout=12)
+    response.raise_for_status()
+    routes=response.json().get("routes",[])
+    if not routes or routes[0].get("result_code")!=0: raise ValueError("자동차 경로 없음")
+    summary=routes[0]["summary"]
+    return int(summary["distance"]),int(summary["duration"])
 
 def main():
     st.set_page_config(page_title="목적지 근처 주차장", page_icon="🅿️", layout="centered")
@@ -465,6 +512,27 @@ def main():
     st.title("🅿️ 목적지 근처 주차장")
     key=str(secret("KAKAO_REST_API_KEY", "")).strip()
     ss=st.session_state
+    # 위치는 동의 후에만 요청하며 세션 메모리에만 보관합니다.
+    if not ss.get("location_prompt_done",False):
+        @st.dialog("현재 위치를 사용할까요?")
+        def location_notice():
+            st.write("현재 위치에서 주차장까지 자동차 이동거리·예상시간을 계산합니다. 위치 권한을 허용해 주세요.")
+            try:
+                from streamlit_geolocation import streamlit_geolocation
+                st.caption("아래 위치 버튼을 누른 뒤 브라우저에서 허용해 주세요.")
+                location=streamlit_geolocation()
+                if location and location.get("latitude") is not None and location.get("longitude") is not None:
+                    ss["user_location"]={"lat":float(location["latitude"]),"lon":float(location["longitude"])}
+                    ss["location_prompt_done"]=True
+                    st.rerun()
+                if location and location.get("error"):
+                    st.info("위치를 가져오지 못했습니다. 브라우저 권한을 확인하거나 위치 없이 계속하세요.")
+            except ImportError:
+                st.info("위치 기능을 설치하려면 새 requirements.txt를 적용하세요.")
+            st.caption("HTTPS와 위치 권한이 필요합니다. 위치는 기록 파일에 저장하지 않습니다.")
+            st.caption("실제 검색은 위치 허용 후 사용할 수 있습니다.")
+        location_notice()
+        st.stop()
     ss.setdefault("screen", "search")
     screen=ss["screen"]
     if screen=="search":
@@ -475,6 +543,16 @@ def main():
             ss.pop("mobile_results",None)
             ss.pop("mobile_destination",None)
         if demo: st.caption("가상 데이터 · 실제 시설·요금 정보가 아닙니다.")
+        if not demo:
+            with st.expander("전국 공공 주차요금 데이터 설정"):
+                st.caption("공공데이터포털 ‘전국주차장정보표준데이터’ 전체 CSV를 올리면 해당 세션에서 사용합니다. 또는 Secrets의 PARKING_CSV_URL에 CSV 직접 다운로드 주소를 등록하세요.")
+                uploaded=st.file_uploader("전국 주차장 CSV",type=["csv"])
+                if uploaded is not None:
+                    try:
+                        ss["public_parking"]=public_parking(uploaded.getvalue())
+                        st.success(f"{len(ss['public_parking']):,}곳 불러옴")
+                    except (ValueError,KeyError): st.error("CSV 형식이나 인코딩을 확인해 주세요.")
+
         # 안내 동의는 이 브라우저의 현재 Streamlit 세션에서 한 번만 받습니다.
         if not ss.get("mic_notice_accepted",False):
             if st.button("🎤 말로 장소 입력",use_container_width=True):
@@ -573,11 +651,46 @@ def main():
                 return
         ss["mobile_lots"]=lots
     lots=ss["mobile_lots"]
+    if not demo:
+        csv_url=str(secret("PARKING_CSV_URL","")).strip()
+        if csv_url and "public_parking" not in ss:
+            try:
+                data_response=requests.get(csv_url,timeout=40)
+                data_response.raise_for_status()
+                ss["public_parking"]=public_parking(data_response.content)
+            except (requests.RequestException,ValueError): st.warning("공공 요금 데이터를 불러오지 못했습니다.")
+        public=[r for r in ss.get("public_parking",[]) if distance_m(dest,r)<=radius]
+        # 공식 데이터는 독립된 주차장으로 표시. 이름만으로 카카오 결과에 요금을 붙이지 않음.
+        lots=public+[r for r in lots if not any(r["name"]==v["name"] and distance_m(r,v)<30 for v in public)]
+        if not ss.get("public_parking"): st.caption("공공 CSV 연결 전입니다. 카카오 검색만으로는 요금을 제공하지 않습니다.")
+
     picked=ss.get("mobile_discounts",[])
     rows=[]
     for lot in lots:
         cost,note=estimate_fee(lot.get("tariff"),start,end,lot["id"] in picked)
-        rows.append(dict(lot,cost=cost,fee_note=note,distance=distance_m(dest,lot),status=operation_status(lot.get("hours"),start,end),hours_label=hours_text(lot.get("hours"),start,end)))
+        rows.append(dict(lot,cost=cost,fee_note=note,distance=distance_m(ss.get("user_location") if not demo and ss.get("user_location") else dest,lot),status=operation_status(lot.get("hours"),start,end),hours_label=hours_text(lot.get("hours"),start,end)))
+    if not demo:
+        origin=ss.get("user_location")
+        if not origin:
+            ss["location_prompt_done"]=False
+            st.rerun()
+        route_key=str(secret("KAKAO_MOBILITY_REST_API_KEY",key)).strip()
+        routed=[]
+        failed=0
+        with st.spinner("자동차 경로를 확인하고 있어요…"):
+            for r in sorted(rows,key=lambda r:r["distance"])[:15]:
+                try:
+                    r["distance"],r["drive_seconds"]=driving_route(route_key,origin["lat"],origin["lon"],r["lat"],r["lon"])
+                    if "public_estimate" in r:
+                        r["cost"]=r["public_estimate"]
+                        r["fee_note"]="기본·추가요금으로 계산한 2시간 참고금액. 일일상한·무료시간·할인·특기사항은 미반영."
+                    routed.append(r)
+                except (requests.RequestException,ValueError,KeyError): failed+=1
+        rows=routed
+        if failed: st.caption(f"자동차 경로를 확인하지 못한 {failed}곳 제외 · 직선거리로 대체하지 않음")
+        if not rows:
+            st.warning("자동차 경로 조회 실패: 위치 권한과 카카오모빌리티 길찾기 API 설정을 확인하세요.")
+            return
     if ss["screen"]=="compare":
         st.caption("추천 기준")
         criteria=["요금 우선","거리 우선","요금·거리 균형"]
@@ -593,7 +706,8 @@ def main():
                         ss["mobile_criterion"]=label
                         st.rerun()
         criterion=ss["mobile_criterion"]
-        st.caption("2시간 주차 · 반경 1km · 직선거리")
+        st.caption("2시간 주차 · 목적지 반경 1km 검색")
+        st.caption("가상 직선거리" if demo else "현재 위치 → 주차장 · 자동차 경로 · 예상시간은 교통 상황에 따라 변동")
         summary={"요금 우선":"낮은 요금순 · 동률이면 가까운 곳", "거리 우선":"가까운 순 · 요금 미확인 포함", "요금·거리 균형":"요금 50% + 거리 50% 균형"}[criterion]
         st.caption(summary)
         st.caption(f"{start:%m/%d %H:%M}~{end:%H:%M} · 실시간 잔여 자리 확인 불가")
@@ -604,13 +718,17 @@ def main():
             if fallback:
                 # 운영 미확인을 영업 중으로 간주하지 않고 위치 검색 결과로 별도 제공.
                 ranked=sorted((r for r in rows if r["status"]!="closed"),key=lambda r:r["distance"])[:3]
-                if ranked: st.caption("근처 검색 결과 · 운영시간·요금 미제공으로 가까운 순 표시 (이용 가능 보장 아님)")
+                if ranked: st.caption("근처 검색 결과 · 운영시간·요금 미제공으로 가까운 순 표시 (영업 여부 미확인)")
             for n,r in enumerate(ranked,1):
                 price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 미확인"
                 kind=affiliation(r,dest["id"])
                 with st.container(border=True):
                     st.markdown(f"**{n}. {r['name']}**"+(f" · {kind}" if kind else ""))
-                    st.write(f"{price} · 직선 {r['distance']:,}m")
+                    st.write(f"{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m")
+                    if not demo:
+                        st.caption(f"자동차 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
+                    if "public_estimate" in r and r.get("cost") is not None:
+                        st.caption("2시간 참고요금 · 상한·할인 등 미반영")
                     discount=(r.get("tariff") or {}).get("discount")
                     if isinstance(discount,dict):
                         discounted,_=estimate_fee(r.get("tariff"),start,end,True)
@@ -647,7 +765,7 @@ def main():
                 candidate=st.selectbox("전체 주차장 · 전용/제휴 포함",list(choices),format_func=lambda i:choices[i]["name"]+(" · "+affiliation(choices[i],dest["id"]) if affiliation(choices[i],dest["id"]) else ""))
                 r=choices[candidate]
                 st.caption(r["address"])
-                st.write(f"직선 {r['distance']:,}m · "+{"open":"시간표상 운영","closed":"운영시간 밖 · 추천 제외","unknown":"운영 확인 필요 · 추천 제외"}[r["status"]])
+                st.write(f"{'가상 직선' if demo else '자동차'} {r['distance']:,}m · "+{"open":"시간표상 운영","closed":"운영시간 밖 · 추천 제외","unknown":"운영 확인 필요 · 추천 제외"}[r["status"]])
                 if st.button("지도·상세 →",key="all_detail",use_container_width=True):
                     ss["selected_lot"]=candidate;ss["screen"]="detail";st.rerun()
             else: st.info("주변 검색 결과가 없습니다.")
@@ -662,8 +780,9 @@ def main():
     selected_id=st.selectbox("주차장",options,index=options.index(initial) if initial in options else 0,format_func=lambda i:choices[i]["name"]+(" · "+affiliation(choices[i],dest["id"]) if affiliation(choices[i],dest["id"]) else ""))
     r=choices[selected_id]
     price=f"{r['cost']:,}원 예상" if r['cost'] is not None else "요금 확인 필요"
-    st.write(f"**{price} · 직선 {r['distance']:,}m**")
+    st.write(f"**{price} · {'가상 직선' if demo else '자동차'} {r['distance']:,}m**")
     st.caption(r["address"])
+    st.caption("가상 직선거리" if demo else f"현재 위치 기준 자동차 약 {math.ceil(r.get('drive_seconds',0)/60)}분")
     st.map(pd.DataFrame([{"lat":dest["lat"],"lon":dest["lon"],"color":"#176B55","size":18},{"lat":r["lat"],"lon":r["lon"],"color":"#E87439","size":24}]),latitude="lat",longitude="lon",color="color",size="size",height=200)
     if not demo:
         url=f"https://map.kakao.com/link/to/{quote(r['name'],safe='')},{r['lat']},{r['lon']}"
@@ -676,9 +795,14 @@ def main():
     else: missing.append("운영시간")
     if r["status"]=="closed": st.warning("선택한 이용시간은 운영시간 밖입니다.")
     tariff=r.get("tariff") or {}
+    if r.get("public_fee"):
+        st.write("공공 요금표: "+r["public_fee"])
+        st.caption(r.get("fee_note",""))
+        if r.get("public_note"): st.caption("특기사항: "+r["public_note"])
+        st.caption("데이터 기준일: "+str(r.get("verified_on", "미제공")))
     if tariff.get("complete"):
         st.write(tariff_text(tariff))
-    else: missing.append("요금")
+    elif not r.get("public_fee"): missing.append("요금")
     discount=tariff.get("discount")
     if isinstance(discount,dict):
         checked=st.checkbox(str(discount.get("label","방문객 할인 조건 충족")),value=r["id"] in picked,key="apply_discount_"+str(r["id"])+str(r["id"] in picked))
