@@ -21,7 +21,10 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-import qrcode
+try:
+    import qrcode
+except ModuleNotFoundError:
+    qrcode = None
 import streamlit as st
 
 st.set_page_config(page_title="장보기 메모", page_icon="🛒", layout="centered", initial_sidebar_state="collapsed")
@@ -231,10 +234,13 @@ def main():
                 try:
                     url = build_url(base, token)
                     buffer = io.BytesIO()
-                    qrcode.make(url).save(buffer, format="PNG")
-                    st.image(buffer.getvalue(), width=190)
                     st.link_button("이 목록 열기", url)
-                    st.download_button("QR 이미지 저장", buffer.getvalue(), "shopping_qr.png", "image/png")
+                    if qrcode is None:
+                        st.warning("QR 생성 라이브러리가 설치되지 않았습니다. app.py와 같은 폴더의 requirements.txt에 qrcode[pil]>=8.0,<9.0을 넣고 앱을 재배포하세요. 위 목록 링크는 사용할 수 있습니다.")
+                    else:
+                        qrcode.make(url).save(buffer, format="PNG")
+                        st.image(buffer.getvalue(), width=190)
+                        st.download_button("QR 이미지 저장", buffer.getvalue(), "shopping_qr.png", "image/png")
                 except ValueError as exc:
                     st.warning(str(exc))
             st.download_button("전체 내역 CSV 백업", csv_data(rows(token)), "shopping_backup.csv", "text/csv")
