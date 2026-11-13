@@ -677,7 +677,7 @@ def main():
         if demo and "mobile_results" not in ss: results=demo_data()[0]
         if results:
             by_id={d["id"]:d for d in results}
-            selected=st.selectbox("목적지 선택 · 주소 포함",list(by_id),format_func=lambda i:by_id[i]["name"]+" · "+by_id[i]["address"],key="mobile_destination")
+            selected=st.selectbox("목적지 선택 · 주소 포함",list(by_id),format_func=lambda i:by_id[i]["name"]+" · "+by_id[i]["address"],key="mobile_destination",accept_new_options=False)
             if st.button("주변 주차장 비교 →",type="primary",use_container_width=True):
                 ss["destination"]=by_id[selected];ss["demo"]=demo
                 ss["visit_start"]=(datetime.combine(datetime.now(KST).date(),time(12,0)) if demo else datetime.now(KST).replace(tzinfo=None,second=0,microsecond=0))
@@ -836,7 +836,7 @@ def main():
             candidates=[dict(r,status="open",actual_status=r["status"]) for r in rows if r["status"]!="closed"]
             ranked=rank_lots(candidates,criterion)[:3]
             if ranked:
-                st.warning("운영 여부 미확인 · 선택 기준으로 정렬한 검색 결과입니다.")
+                pass  # 중복 안내 제거
             elif candidates:
                 st.warning("비교할 요금 정보가 없어 가까운 순으로 표시합니다.")
                 ranked=sorted(candidates,key=lambda r:r["distance"])[:3]
@@ -859,7 +859,7 @@ def main():
                 if st.button("지도·상세 →",key="detail_"+str(r["id"]),use_container_width=True):
                     ss["selected_lot"]=r["id"];ss["screen"]="detail";st.rerun()
         if not ranked: st.info("현재 조건의 후보가 없습니다. 다른 장소를 검색해 주세요.")
-        st.caption("참고요금: 할인·무료시간·일일상한 미반영 · 빈자리 확인 불가")
+        pass  # 중복 안내 제거
         return
     if st.button("← 비교 결과",key="back_compare"):
         ss["screen"]="compare";st.rerun()
@@ -902,7 +902,7 @@ def main():
     tariff=r.get("tariff") or {}
     if r.get("public_fee"):
         st.write("공공 요금표: "+r["public_fee"])
-        st.warning("참고요금 · 할인·무료시간·일일상한 미반영")
+        pass  # 중복 안내 제거
         if r.get("public_note"): st.caption("특기사항: "+r["public_note"])
         st.caption("데이터 기준일: "+str(r.get("verified_on", "미제공")))
     if tariff.get("complete"):
